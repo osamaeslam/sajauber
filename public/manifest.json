@@ -1,0 +1,40 @@
+{
+  "short_name": "كابتن عز",
+  "name": "كابتن عز - Captain Ezz",
+  "icons": [
+    {
+      "src": "/ezz_taxi_icon.jpg",
+      "type": "image/jpeg",
+      "sizes": "192x192",
+      "purpose": "any"
+    },
+    {
+      "src": "/ezz_taxi_icon.jpg",
+      "type": "image/jpeg",
+      "sizes": "512x512",
+      "purpose": "any"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "رحلة جديدة",
+      "short_name": "رحلة",
+      "description": "اطلب رحلة جديدة",
+      "url": "/?screen=HOME",
+      "icons": [
+        {
+          "src": "/ezz_taxi_icon.jpg",
+          "sizes": "96x96"
+        }
+      ]
+    }
+  ],
+  "categories": ["transportation", "navigation"],
+  "start_url": "/",
+  "scope": "/",
+  "background_color": "#0f172a",
+  "theme_color": "#2563eb",
+  "display": "standalone",
+  "orientation": "portrait",
+  "prefer_related_applications": false
+}
