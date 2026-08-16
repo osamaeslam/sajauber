@@ -1708,21 +1708,17 @@ export const saveActiveTrip = async (trip: Trip | null, clearTripId?: string): P
   }
 };
 
-// Subscribe to active trip changes in realtime (used by the driver app to receive new ride requests)
+// Subscribe to active trip changes in realtime (used by driver and rider to sync trips and direct chat instantly)
 export const subscribeToActiveTrips = (
   onTrip: (trip: Trip | null) => void,
   userId?: string,
   userRole?: 'rider' | 'driver' | 'admin'
 ): { unsubscribe: () => void } => {
-  let filter: any = { event: '*', schema: 'public', table: 'ezz_active_trip' };
-  if (userId && userRole === 'rider') {
-    filter = { ...filter, filter: `rider_id=eq.${userId}` };
-  }
   const channel = supabase
-    .channel('ezz_active_trip_changes')
+    .channel(`ezz_active_trip_changes_${userRole || 'all'}_${userId || 'global'}_${Date.now()}`)
     .on(
       'postgres_changes',
-      filter,
+      { event: '*', schema: 'public', table: 'ezz_active_trip' },
       (payload: any) => {
         if (payload.eventType === 'DELETE') {
           onTrip(null);

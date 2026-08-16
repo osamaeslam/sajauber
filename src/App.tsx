@@ -4775,6 +4775,7 @@
                           visitorCount={visitorCount}
                           liveTrips={liveTrips}
                           totalUsers={drivers.length + registeredRiders.length}
+                          adminUserId={adminUserId}
                           onUpdateCommissionRate={handleUpdateCommissionRate}
                           onUpdatePricingStats={handleUpdatePricingStats}
                           onSavePricingStats={handleSavePricingStats}

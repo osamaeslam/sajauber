@@ -16,6 +16,7 @@ interface AdminViewProps {
   visitorCount: number;
   liveTrips: Trip[];
   totalUsers: number;
+  adminUserId?: string;
   onUpdateCommissionRate: (rate: number) => void;
   onUpdatePricingStats: (updated: Partial<SystemStats>) => void;
   onSavePricingStats: (stats: SystemStats) => void;
@@ -69,6 +70,7 @@ export const AdminView: React.FC<AdminViewProps> = ({
   onClearAllFakeData,
   onAdminForceCancelTrip,
   onAdminForceEndTrip,
+  adminUserId: propAdminUserId,
   lang,
   onLogout,
   onTriggerToast,
@@ -88,15 +90,19 @@ export const AdminView: React.FC<AdminViewProps> = ({
 
   const [activeTab, setActiveTab] = useState<'overview' | 'drivers' | 'riders' | 'history' | 'analytics' | 'legal' | 'regions' | 'ads'>('overview');
   const [saveSuccess, setSaveSuccess] = useState(false);
-  const [adminUserId, setAdminUserId] = useState<string>('');
+  const [adminUserId, setAdminUserId] = useState<string>(propAdminUserId || '');
 
   useEffect(() => {
+    if (propAdminUserId) {
+      setAdminUserId(propAdminUserId);
+      return;
+    }
     loadSession().then(session => {
-      if (session?.role === 'ADMIN') {
+      if (session?.role === 'ADMIN' && session.userId) {
         setAdminUserId(session.userId);
       }
     });
-  }, []);
+  }, [propAdminUserId]);
 
   const [pricingForm, setPricingForm] = useState({
     distanceBuffer: stats.distanceBuffer ?? 1.25,
@@ -259,11 +265,34 @@ export const AdminView: React.FC<AdminViewProps> = ({
   const [allTrips, setAllTrips] = useState<Trip[]>([]);
   const [isLoadingAllTrips, setIsLoadingAllTrips] = useState(false);
 
-  const completedCount = allTrips.filter(t => t.status === 'COMPLETED').length;
+  // Financial and operational aggregations calculated from real allTrips + driver ledgers + system stats
+  const completedTripsList = allTrips.filter(t => t.status === 'COMPLETED');
+  const completedCount = completedTripsList.length;
   const cancelledCount = allTrips.filter(t => t.status === 'CANCELLED').length;
-  const totalRides = allTrips.length;
-  const successRate = totalRides > 0 ? Math.round((completedCount / totalRides) * 100) : 0;
+  const totalRides = allTrips.length || drivers.reduce((acc, d) => acc + (Number(d.totalTrips) || 0), 0) || stats.totalCompletedTrips || 0;
+  const successRate = totalRides > 0 ? Math.round((completedCount / totalRides) * 100) : (totalRides > 0 ? 100 : 0);
   const cancelRate = totalRides > 0 ? Math.round((cancelledCount / totalRides) * 100) : 0;
+
+  // Real-time aggregations from trips with fallbacks to drivers totals and stats
+  const tripsTotalRevenue = completedTripsList.reduce((acc, t) => acc + (Number(t.fare) || 0), 0);
+  const tripsTotalCommission = completedTripsList.reduce((acc, t) => acc + (Number(t.commission) || 0), 0);
+  const driversTotalCommission = drivers.reduce((acc, d) => acc + (Number(d.totalCommissionPaid) || 0), 0);
+  const driversTotalEarnings = drivers.reduce((acc, d) => acc + (Number(d.totalEarnings) || 0), 0);
+
+  const displayTotalRevenue = tripsTotalRevenue > 0
+    ? Math.round(tripsTotalRevenue)
+    : (stats.totalRevenue && stats.totalRevenue > 0)
+    ? Math.round(stats.totalRevenue)
+    : Math.round(driversTotalEarnings + driversTotalCommission);
+
+  const displayTotalCommission = tripsTotalCommission > 0
+    ? Math.round(tripsTotalCommission)
+    : (stats.totalCommission && stats.totalCommission > 0)
+    ? Math.round(stats.totalCommission)
+    : Math.round(driversTotalCommission);
+
+  const displayDriverEarnings = Math.max(0, displayTotalRevenue - displayTotalCommission);
+
   const onlineDrivers = drivers.filter(d => d.isOnline).length;
   const approvedDrivers = drivers.filter(d => d.approvalStatus === 'APPROVED').length;
   const offlineDrivers = drivers.filter(d => !d.isOnline).length;
@@ -388,31 +417,71 @@ export const AdminView: React.FC<AdminViewProps> = ({
   const getActiveDriversData = () => {
     const statsObj: { [key: string]: { name: string; rides: number; revenue: number; commission: number } } = {};
     
+    // Seed with driver profile records
     drivers.forEach(d => {
-      statsObj[d.name] = { name: d.name, rides: 0, revenue: 0, commission: 0 };
-    });
-
-    allTrips.filter(t => t.status === 'COMPLETED').forEach(t => {
-      const name = t.driverName || (lang === 'ar' ? 'كابتن مجهول' : 'Unknown Captain');
-      if (!statsObj[name]) {
-        statsObj[name] = { name, rides: 0, revenue: 0, commission: 0 };
-      }
-      statsObj[name].rides += 1;
-      statsObj[name].revenue += t.fare;
-      statsObj[name].commission += t.commission;
-    });
-
-    return Object.values(statsObj).map(drv => {
-      const matched = drivers.find(d => d.name === drv.name);
-      return {
-        name: drv.name,
-        [lang === 'ar' ? 'الرحلات' : 'Rides']: drv.rides,
-        [lang === 'ar' ? 'الأرباح' : 'Earnings']: drv.revenue,
-        [lang === 'ar' ? 'العمولات' : 'Commissions']: drv.commission
+      statsObj[d.id] = {
+        name: d.name,
+        rides: Number(d.totalTrips) || 0,
+        revenue: Number(d.totalEarnings) || 0,
+        commission: Number(d.totalCommissionPaid) || 0,
       };
-    }).sort((a, b) => {
-      const valB = b[lang === 'ar' ? 'الرحلات' : 'Rides'] as number;
-      const valA = a[lang === 'ar' ? 'الرحلات' : 'Rides'] as number;
+      statsObj[d.name] = statsObj[d.id];
+    });
+
+    const completedTrips = allTrips.filter(t => t.status === 'COMPLETED');
+    if (completedTrips.length > 0) {
+      // Overwrite/enrich with real trip details if trips exist
+      const tripCountsById: { [key: string]: { rides: number; revenue: number; commission: number } } = {};
+      const tripCountsByName: { [key: string]: { rides: number; revenue: number; commission: number } } = {};
+
+      completedTrips.forEach(t => {
+        const fare = Number(t.fare) || 0;
+        const comm = Number(t.commission) || 0;
+        const net = fare - comm;
+
+        if (t.driverId) {
+          if (!tripCountsById[t.driverId]) tripCountsById[t.driverId] = { rides: 0, revenue: 0, commission: 0 };
+          tripCountsById[t.driverId].rides += 1;
+          tripCountsById[t.driverId].revenue += net;
+          tripCountsById[t.driverId].commission += comm;
+        }
+
+        const name = t.driverName || (lang === 'ar' ? 'كابتن مجهول' : 'Unknown Captain');
+        if (!tripCountsByName[name]) tripCountsByName[name] = { rides: 0, revenue: 0, commission: 0 };
+        tripCountsByName[name].rides += 1;
+        tripCountsByName[name].revenue += net;
+        tripCountsByName[name].commission += comm;
+      });
+
+      drivers.forEach(d => {
+        const byId = tripCountsById[d.id];
+        const byName = tripCountsByName[d.name];
+        if (byId || byName) {
+          const res = byId || byName;
+          statsObj[d.id] = { name: d.name, rides: res.rides, revenue: res.revenue, commission: res.commission };
+        }
+      });
+    }
+
+    // De-duplicate by driver name / ID
+    const uniqueDriversMap: { [key: string]: { name: string; rides: number; revenue: number; commission: number } } = {};
+    drivers.forEach(d => {
+      uniqueDriversMap[d.name] = statsObj[d.id] || statsObj[d.name] || {
+        name: d.name,
+        rides: Number(d.totalTrips) || 0,
+        revenue: Number(d.totalEarnings) || 0,
+        commission: Number(d.totalCommissionPaid) || 0,
+      };
+    });
+
+    return Object.values(uniqueDriversMap).map(drv => ({
+      name: drv.name,
+      [lang === 'ar' ? 'الرحلات' : 'Rides']: drv.rides,
+      [lang === 'ar' ? 'الأرباح' : 'Earnings']: Math.round(drv.revenue),
+      [lang === 'ar' ? 'العمولات' : 'Commissions']: Math.round(drv.commission)
+    })).sort((a, b) => {
+      const valB = (b[lang === 'ar' ? 'الرحلات' : 'Rides'] as number) || 0;
+      const valA = (a[lang === 'ar' ? 'الرحلات' : 'Rides'] as number) || 0;
       return valB - valA;
     });
   };
@@ -494,13 +563,12 @@ export const AdminView: React.FC<AdminViewProps> = ({
 
   // 4. Data Processor: Driver Performance Metrics
   const getDriverPerformanceData = () => {
-    return drivers
-      .filter(d => d.approvalStatus === 'APPROVED')
+    return getActiveDriversData()
       .map(d => ({
         name: d.name,
-        [lang === 'ar' ? 'رحلات' : 'Rides']: d.totalTrips || 0,
-        [lang === 'ar' ? 'أرباح' : 'Earnings']: Math.round(d.totalEarnings || 0),
-        [lang === 'ar' ? 'عمولة' : 'Commission']: Math.round(d.totalCommissionPaid || 0),
+        [lang === 'ar' ? 'رحلات' : 'Rides']: d[lang === 'ar' ? 'الرحلات' : 'Rides'] || 0,
+        [lang === 'ar' ? 'أرباح' : 'Earnings']: d[lang === 'ar' ? 'الأرباح' : 'Earnings'] || 0,
+        [lang === 'ar' ? 'عمولة' : 'Commission']: d[lang === 'ar' ? 'العمولات' : 'Commissions'] || 0,
       }))
       .sort((a, b) => (b[lang === 'ar' ? 'رحلات' : 'Rides'] as number) - (a[lang === 'ar' ? 'رحلات' : 'Rides'] as number))
       .slice(0, 10);
@@ -528,25 +596,107 @@ export const AdminView: React.FC<AdminViewProps> = ({
   const getDriverStatsForPeriod = (period: 'all' | 'week' | 'month' | '30days') => {
     const trips = getFilteredTripsForPeriod(period);
     const statsObj: { [key: string]: { trips: number; earnings: number; commission: number } } = {};
-    trips.forEach(t => {
-      const name = t.driverName || (lang === 'ar' ? 'كابتن مجهول' : 'Unknown');
-      if (!statsObj[name]) statsObj[name] = { trips: 0, earnings: 0, commission: 0 };
-      statsObj[name].trips += 1;
-      statsObj[name].earnings += t.fare;
-      statsObj[name].commission += t.commission;
+    
+    // Seed with existing drivers to guarantee lookup keys for both driver.id and driver.name
+    drivers.forEach(d => {
+      if (period === 'all') {
+        const dTrips = Number(d.totalTrips) || 0;
+        const dEarn = Number(d.totalEarnings) || 0;
+        const dComm = Number(d.totalCommissionPaid) || 0;
+        statsObj[d.id] = { trips: dTrips, earnings: dEarn, commission: dComm };
+        statsObj[d.name] = { trips: dTrips, earnings: dEarn, commission: dComm };
+      } else {
+        statsObj[d.id] = { trips: 0, earnings: 0, commission: 0 };
+        statsObj[d.name] = { trips: 0, earnings: 0, commission: 0 };
+      }
     });
+
+    // If trips are present, calculate precise aggregates from the trip records
+    if (trips.length > 0) {
+      const tripStatsById: { [key: string]: { trips: number; earnings: number; commission: number } } = {};
+      const tripStatsByName: { [key: string]: { trips: number; earnings: number; commission: number } } = {};
+
+      trips.forEach(t => {
+        const fare = Number(t.fare) || 0;
+        const comm = Number(t.commission) || 0;
+        const driverNet = fare - comm;
+
+        if (t.driverId) {
+          if (!tripStatsById[t.driverId]) tripStatsById[t.driverId] = { trips: 0, earnings: 0, commission: 0 };
+          tripStatsById[t.driverId].trips += 1;
+          tripStatsById[t.driverId].earnings += driverNet;
+          tripStatsById[t.driverId].commission += comm;
+        }
+
+        const name = t.driverName || (lang === 'ar' ? 'كابتن مجهول' : 'Unknown');
+        if (!tripStatsByName[name]) tripStatsByName[name] = { trips: 0, earnings: 0, commission: 0 };
+        tripStatsByName[name].trips += 1;
+        tripStatsByName[name].earnings += driverNet;
+        tripStatsByName[name].commission += comm;
+      });
+
+      // Merge trip calculations into lookup maps
+      drivers.forEach(d => {
+        const byId = tripStatsById[d.id];
+        const byName = tripStatsByName[d.name];
+        const merged = byId || byName || (period === 'all' ? {
+          trips: Number(d.totalTrips) || 0,
+          earnings: Number(d.totalEarnings) || 0,
+          commission: Number(d.totalCommissionPaid) || 0,
+        } : { trips: 0, earnings: 0, commission: 0 });
+
+        statsObj[d.id] = merged;
+        statsObj[d.name] = merged;
+      });
+
+      // Also copy all byName stats for loose lookups
+      Object.keys(tripStatsByName).forEach(name => {
+        if (!statsObj[name]) {
+          statsObj[name] = tripStatsByName[name];
+        }
+      });
+    }
+
     return statsObj;
   };
 
   const getRiderStatsForPeriod = (period: 'all' | 'week' | 'month' | '30days') => {
     const trips = getFilteredTripsForPeriod(period);
     const statsObj: { [key: string]: { trips: number; spent: number } } = {};
+    
+    // Seed with existing riders
+    riders.forEach(r => {
+      if (period === 'all' && (r.totalTrips || 0) > 0) {
+        statsObj[r.id] = { trips: Number(r.totalTrips) || 0, spent: 0 };
+        statsObj[r.name] = { trips: Number(r.totalTrips) || 0, spent: 0 };
+      } else {
+        statsObj[r.id] = { trips: 0, spent: 0 };
+        statsObj[r.name] = { trips: 0, spent: 0 };
+      }
+    });
+
     trips.forEach(t => {
+      const fare = Number(t.fare) || 0;
+      if (t.riderId) {
+        if (!statsObj[t.riderId]) statsObj[t.riderId] = { trips: 0, spent: 0 };
+        statsObj[t.riderId].trips += 1;
+        statsObj[t.riderId].spent += fare;
+      }
       const name = t.riderName || (lang === 'ar' ? 'راكب مجهول' : 'Unknown');
       if (!statsObj[name]) statsObj[name] = { trips: 0, spent: 0 };
       statsObj[name].trips += 1;
-      statsObj[name].spent += t.fare;
+      statsObj[name].spent += fare;
     });
+
+    // Link by ID and name for riders
+    riders.forEach(r => {
+      const byId = statsObj[r.id];
+      const byName = statsObj[r.name];
+      const best = (byId && byId.trips > 0) ? byId : (byName || byId || { trips: 0, spent: 0 });
+      statsObj[r.id] = best;
+      statsObj[r.name] = best;
+    });
+
     return statsObj;
   };
 
@@ -1681,7 +1831,8 @@ export const AdminView: React.FC<AdminViewProps> = ({
                        .map((drv) => {
                          const isFrozen = drv.approvalStatus === 'FROZEN';
                          const isRejected = drv.approvalStatus === 'REJECTED';
-                         const driverPeriodStats = getDriverStatsForPeriod(driverPeriodFilter)[drv.name] || { trips: 0, earnings: 0, commission: 0 };
+                         const driverStatsMap = getDriverStatsForPeriod(driverPeriodFilter);
+                         const driverPeriodStats = driverStatsMap[drv.id] || driverStatsMap[drv.name] || { trips: 0, earnings: 0, commission: 0 };
 
                          return (
                          <div key={drv.id} className={`border border-slate-100 p-3 rounded-xl space-y-2.5 ${isFrozen ? 'bg-red-50/20 border-red-100' : isRejected ? 'bg-slate-50 border-slate-200' : 'bg-white'}`}>
@@ -1981,7 +2132,8 @@ export const AdminView: React.FC<AdminViewProps> = ({
                      const isFrozen = rider.approvalStatus === 'FROZEN';
                      const isBlocked = rider.approvalStatus === 'BLOCKED';
                      const isRejected = rider.approvalStatus === 'REJECTED';
-                     const riderPeriodStats = getRiderStatsForPeriod(riderPeriodFilter)[rider.name] || { trips: 0, spent: 0 };
+                     const riderStatsMap = getRiderStatsForPeriod(riderPeriodFilter);
+                     const riderPeriodStats = riderStatsMap[rider.id] || riderStatsMap[rider.name] || { trips: 0, spent: 0 };
 
                      return (
                        <div
@@ -2479,7 +2631,7 @@ export const AdminView: React.FC<AdminViewProps> = ({
                       {lang === 'ar' ? 'أرباح عمولات التطبيق المستحقة' : 'Total App Commissions'}
                     </p>
                     <p className="text-2xl font-black mt-1 text-amber-300">
-                      {stats.totalCommission} {lang === 'ar' ? 'ج.م' : 'EGP'}
+                      {displayTotalCommission} {lang === 'ar' ? 'ج.م' : 'EGP'}
                     </p>
                   </div>
                   <div className="p-2.5 bg-white/10 rounded-xl">
@@ -2489,7 +2641,7 @@ export const AdminView: React.FC<AdminViewProps> = ({
                 <div className="mt-3 pt-3 border-t border-white/10 flex justify-between items-center text-[9px] text-slate-300">
                   <div>
                     <span>{lang === 'ar' ? 'إجمالي قيمة المبيعات (الرحلات):' : 'Total Gross Revenue:'} </span>
-                    <span className="font-extrabold text-white">{stats.totalRevenue} {lang === 'ar' ? 'ج.م' : 'EGP'}</span>
+                    <span className="font-extrabold text-white">{displayTotalRevenue} {lang === 'ar' ? 'ج.م' : 'EGP'}</span>
                   </div>
                   <div className="flex items-center gap-0.5 text-emerald-400 font-bold">
                     <TrendingUp className="w-3 h-3" />
@@ -2653,15 +2805,15 @@ export const AdminView: React.FC<AdminViewProps> = ({
                   <div className="mt-2 flex gap-3">
                     <div>
                       <p className="text-[8px] text-slate-400">{lang === 'ar' ? 'إجمالي الدخل' : 'Gross Revenue'}</p>
-                      <p className="text-sm font-black text-white">{stats.totalRevenue} {lang === 'ar' ? 'ج.م' : 'EGP'}</p>
+                      <p className="text-sm font-black text-white">{displayTotalRevenue} {lang === 'ar' ? 'ج.م' : 'EGP'}</p>
                     </div>
                     <div>
                       <p className="text-[8px] text-slate-400">{lang === 'ar' ? 'عمولة المنصة' : 'Platform Commission'}</p>
-                      <p className="text-sm font-black text-amber-300">{stats.totalCommission} {lang === 'ar' ? 'ج.م' : 'EGP'}</p>
+                      <p className="text-sm font-black text-amber-300">{displayTotalCommission} {lang === 'ar' ? 'ج.م' : 'EGP'}</p>
                     </div>
                     <div>
                       <p className="text-[8px] text-slate-400">{lang === 'ar' ? 'أرباح السائقين' : 'Driver Earnings'}</p>
-                      <p className="text-sm font-black text-emerald-300">{Math.round((stats.totalRevenue || 0) - (stats.totalCommission || 0))} {lang === 'ar' ? 'ج.م' : 'EGP'}</p>
+                      <p className="text-sm font-black text-emerald-300">{displayDriverEarnings} {lang === 'ar' ? 'ج.م' : 'EGP'}</p>
                     </div>
                   </div>
                 </div>
@@ -2831,14 +2983,14 @@ export const AdminView: React.FC<AdminViewProps> = ({
                   <>
                     <li>الكباتن المسجلين في النظام: <strong>{drivers.length} سائق</strong>، منهم <strong>{onlineDrivers} متاحون حياً الآن</strong> لتلبية طلبات الزوار المباشرة.</li>
                     <li>بلغت نسبة الطلبات الناجحة المكتملة <strong>{successRate}%</strong> من إجمالي <strong>{totalRides} طلب حقيقي</strong> مسجل في سجلات قاعدة البيانات.</li>
-                    <li>إجمالي أرباح العمولات المستحصلة للمنصة بلغت <strong>{stats.totalCommission} ج.م</strong> من إجمالي مبيعات بلغت <strong>{stats.totalRevenue} ج.م</strong>.</li>
+                    <li>إجمالي أرباح العمولات المستحصلة للمنصة بلغت <strong>{displayTotalCommission} ج.م</strong> من إجمالي مبيعات بلغت <strong>{displayTotalRevenue} ج.م</strong>.</li>
                     <li>معدل إلغاء الرحلات من المستخدمين يقف عند <strong>{cancelRate}%</strong> وهو يقع ضمن الحدود الطبيعية والممتازة لنوع الخدمة.</li>
                   </>
                 ) : (
                   <>
                     <li>Active directory contains <strong>{drivers.length} drivers</strong>, with <strong>{onlineDrivers} captains currently live</strong> to satisfy users.</li>
                     <li>The system records a trip success rate of <strong>{successRate}%</strong> out of <strong>{totalRides} total verified requests</strong>.</li>
-                    <li>Platform net earnings reached <strong>{stats.totalCommission} EGP</strong> from gross trip sales of <strong>{stats.totalRevenue} EGP</strong>.</li>
+                    <li>Platform net earnings reached <strong>{displayTotalCommission} EGP</strong> from gross trip sales of <strong>{displayTotalRevenue} EGP</strong>.</li>
                     <li>User cancellation rate stands stably at <strong>{cancelRate}%</strong>, which is extremely healthy for on-demand services.</li>
                   </>
                 )}
