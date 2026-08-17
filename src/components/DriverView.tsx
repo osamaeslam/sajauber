@@ -839,7 +839,7 @@ export const DriverView: React.FC<DriverViewProps> = ({
                 </div>
                 <div>
                   <h4 className="text-xs font-black text-emerald-900">
-                    {lang === 'ar' ? 'تم إنهاء الرحلة بنجاح! 🎉' : 'Trip Finished Successfully! 🎉'}
+                    {lang === 'ar' ? 'تم اكتمال الرحلة بنجاح! 🎉' : 'Trip Completed Successfully! 🎉'}
                   </h4>
                   <p className="text-[10px] text-emerald-700 mt-0.5 leading-relaxed">
                     {lang === 'ar'

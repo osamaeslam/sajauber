@@ -115,6 +115,50 @@ export function calculateVehicleFare(distance: number, pricing: VehiclePricing):
   return Math.round(pricing.baseFare + kmCharge);
 }
 
+export function getEffectiveStats(stats: any, regionPricing?: any): any {
+  if (!regionPricing || !regionPricing.customPricingEnabled) {
+    return stats || {};
+  }
+  return {
+    ...stats,
+    distanceBuffer: regionPricing.distanceBuffer ?? stats?.distanceBuffer,
+    additionalKm: regionPricing.additionalKm ?? stats?.additionalKm,
+    carBaseFare: regionPricing.carBaseFare ?? stats?.carBaseFare,
+    carMinFare: regionPricing.carMinFare ?? stats?.carMinFare,
+    carPricePerKm: regionPricing.carPricePerKm0to20 ?? regionPricing.carPricePerKm ?? stats?.carPricePerKm,
+    carPricePerKm0to20: regionPricing.carPricePerKm0to20 ?? stats?.carPricePerKm0to20,
+    carPricePerKm20to50: regionPricing.carPricePerKm20to50 ?? stats?.carPricePerKm20to50,
+    carPricePerKm50plus: regionPricing.carPricePerKm50plus ?? stats?.carPricePerKm50plus,
+    
+    motorcycleBaseFare: regionPricing.motorcycleBaseFare ?? stats?.motorcycleBaseFare,
+    motorcycleMinFare: regionPricing.motorcycleMinFare ?? stats?.motorcycleMinFare,
+    motorcyclePricePerKm: regionPricing.motorcyclePricePerKm0to20 ?? regionPricing.motorcyclePricePerKm ?? stats?.motorcyclePricePerKm,
+    motorcyclePricePerKm0to20: regionPricing.motorcyclePricePerKm0to20 ?? stats?.motorcyclePricePerKm0to20,
+    motorcyclePricePerKm20to50: regionPricing.motorcyclePricePerKm20to50 ?? stats?.motorcyclePricePerKm20to50,
+    motorcyclePricePerKm50plus: regionPricing.motorcyclePricePerKm50plus ?? stats?.motorcyclePricePerKm50plus,
+    
+    toktokBaseFare: regionPricing.toktokBaseFare ?? stats?.toktokBaseFare,
+    toktokMinFare: regionPricing.toktokMinFare ?? stats?.toktokMinFare,
+    toktokPricePerKm: regionPricing.toktokPricePerKm0to20 ?? regionPricing.toktokPricePerKm ?? stats?.toktokPricePerKm,
+    toktokPricePerKm0to20: regionPricing.toktokPricePerKm0to20 ?? stats?.toktokPricePerKm0to20,
+    toktokPricePerKm20to50: regionPricing.toktokPricePerKm20to50 ?? stats?.toktokPricePerKm20to50,
+    toktokPricePerKm50plus: regionPricing.toktokPricePerKm50plus ?? stats?.toktokPricePerKm50plus,
+    
+    tricycleBaseFare: regionPricing.tricycleBaseFare ?? stats?.tricycleBaseFare,
+    tricycleMinFare: regionPricing.tricycleMinFare ?? stats?.tricycleMinFare,
+    tricyclePricePerKm: regionPricing.tricyclePricePerKm0to20 ?? regionPricing.tricyclePricePerKm ?? stats?.tricyclePricePerKm,
+    tricyclePricePerKm0to20: regionPricing.tricyclePricePerKm0to20 ?? stats?.tricyclePricePerKm0to20,
+    tricyclePricePerKm20to50: regionPricing.tricyclePricePerKm20to50 ?? stats?.tricyclePricePerKm20to50,
+    tricyclePricePerKm50plus: regionPricing.tricyclePricePerKm50plus ?? stats?.tricyclePricePerKm50plus,
+    
+    commissionMode: regionPricing.commissionMode ?? stats?.commissionMode,
+    incomingCommission: regionPricing.incomingCommission ?? stats?.incomingCommission,
+    outgoingCommission: regionPricing.outgoingCommission ?? stats?.outgoingCommission,
+    incomingCommissionPercent: regionPricing.incomingCommissionPercent ?? stats?.incomingCommissionPercent,
+    outgoingCommissionPercent: regionPricing.outgoingCommissionPercent ?? stats?.outgoingCommissionPercent,
+  };
+}
+
 /**
  * Calculates the complete trip fare including base vehicle pricing, multipliers,
  * promo discounts, and commission rate/fixed fees in one unified standard calculation.
@@ -123,18 +167,20 @@ export function calculateFullTripFare(
   distance: number,
   vehicleType: string,
   stats: any,
-  appliedDiscount: number = 0
+  appliedDiscount: number = 0,
+  regionPricing?: any
 ): { baseFare: number; commission: number; finalFare: number } {
-  const pricing = getVehiclePricing(stats, vehicleType);
+  const effectiveStats = getEffectiveStats(stats, regionPricing);
+  const pricing = getVehiclePricing(effectiveStats, vehicleType);
   let computedBase = calculateVehicleFare(distance, pricing);
 
   // Apply Peak/Night Hour multipliers
-  const peakHourMultiplier = stats?.peakHourMultiplier ?? 1.0;
-  const nightMultiplier = stats?.nightMultiplier ?? 1.0;
-  const peakStartHour = stats?.peakStartHour ?? 7;
-  const peakEndHour = stats?.peakEndHour ?? 9;
-  const nightStartHour = stats?.nightStartHour ?? 22;
-  const nightEndHour = stats?.nightEndHour ?? 5;
+  const peakHourMultiplier = effectiveStats?.peakHourMultiplier ?? 1.0;
+  const nightMultiplier = effectiveStats?.nightMultiplier ?? 1.0;
+  const peakStartHour = effectiveStats?.peakStartHour ?? 7;
+  const peakEndHour = effectiveStats?.peakEndHour ?? 9;
+  const nightStartHour = effectiveStats?.nightStartHour ?? 22;
+  const nightEndHour = effectiveStats?.nightEndHour ?? 5;
 
   const now = new Date();
   const currentHour = now.getHours();
@@ -151,10 +197,10 @@ export function calculateFullTripFare(
   computedBase = Math.round(computedBase * timeMultiplier);
   const discountedBase = Math.max(1, computedBase - appliedDiscount);
 
-  const commissionMode = stats?.commissionMode ?? 'percent';
-  const commissionRateValue = stats?.incomingCommissionPercent ?? stats?.commissionRate ?? 10;
-  const incomingCommissionFixed = stats?.incomingCommission ?? 5;
-  const outgoingCommissionFixed = stats?.outgoingCommission ?? 5;
+  const commissionMode = effectiveStats?.commissionMode ?? 'percent';
+  const commissionRateValue = effectiveStats?.incomingCommissionPercent ?? effectiveStats?.commissionRate ?? 10;
+  const incomingCommissionFixed = effectiveStats?.incomingCommission ?? 5;
+  const outgoingCommissionFixed = effectiveStats?.outgoingCommission ?? 5;
 
   let commission = 0;
   if (commissionMode === 'percent') {

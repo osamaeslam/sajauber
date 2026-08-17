@@ -162,20 +162,20 @@ export const useNotifications = (
         playNotificationSound('trip_completed');
         speakText(
           lang === 'ar'
-            ? 'حمد لله على السلامة، تم إكمال الرحلة بنجاح وشكراً لاختيارك عز.'
-            : 'Welcome back, trip completed successfully. Thank you for choosing Ezz.',
+            ? 'حمد لله على السلامة، تم اكتمال الرحلة بنجاح وشكراً لاختيارك كابتن عز.'
+            : 'Welcome back, trip completed successfully. Thank you for choosing Captain Ezz.',
           lang === 'ar' ? 'ar-EG' : 'en-US'
         );
         sendNativeNotification(
-          '🎉 وصلت بالسلامة!',
-          'تم إكمال الرحلة بنجاح. شكراً لك على اختيارك كابتن عز!',
+          '🎉 تم اكتمال الرحلة بنجاح!',
+          'حمد لله على السلامة، تم اكتمال الرحلة بنجاح. شكراً لك على اختيارك كابتن عز!',
           '✨'
         );
-        startTitleFlash('🎉 أهلاً بك!');
+        startTitleFlash('✨ تم اكتمال الرحلة!');
         setTimeout(stopTitleFlash, 5000);
         triggerToast(
-          '🎉 تم إكمال الرحلة',
-          'نأمل أن تكون رحلة موفقة، شكراً لثقتك بكابتن عز!',
+          '🎉 تم اكتمال الرحلة بنجاح!',
+          'حمد لله على السلامة، تم اكتمال الرحلة بنجاح. شكراً لثقتك بكابتن عز!',
           'success'
         );
       } else if (currentStatus === 'CANCELLED') {

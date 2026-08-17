@@ -436,20 +436,33 @@ export const RiderView: React.FC<RiderViewProps> = ({
     };
   }, []);
 
-  // Calculate estimated distance and fare using standard model
+  // When the rider has selected a pickup region, resolve region settings
+  const selectedRegion = regions.find(r => r.id === selectedPickupRegion);
+  const selectedRegionName = selectedRegion?.nameAr || selectedRegion?.nameEn || '';
+
+  // Calculate estimated distance and fare using standard / regional model
   let directDistance = 0;
   let distance = 0;
   let estimatedFare = 0;
   let originalFare = 0;
   let commissionRate = 10;
 
-  const distanceBuffer = (stats?.distanceBuffer !== undefined && stats.distanceBuffer > 0) ? stats.distanceBuffer : 1.25;
-  const additionalKm = stats?.additionalKm !== undefined ? stats.additionalKm : 0.0;
-  const incomingCommission = stats?.incomingCommission ?? 5;
+  const distanceBuffer = (selectedRegion?.pricing?.customPricingEnabled && selectedRegion.pricing.distanceBuffer !== undefined && selectedRegion.pricing.distanceBuffer > 0)
+    ? selectedRegion.pricing.distanceBuffer
+    : ((stats?.distanceBuffer !== undefined && stats.distanceBuffer > 0) ? stats.distanceBuffer : 1.25);
+
+  const additionalKm = (selectedRegion?.pricing?.customPricingEnabled && selectedRegion.pricing.additionalKm !== undefined)
+    ? selectedRegion.pricing.additionalKm
+    : (stats?.additionalKm !== undefined ? stats.additionalKm : 0.0);
+
+  const incomingCommission = (selectedRegion?.pricing?.customPricingEnabled && selectedRegion.pricing.incomingCommission !== undefined)
+    ? selectedRegion.pricing.incomingCommission
+    : (stats?.incomingCommission ?? 5);
+
   const discountAmount = appliedPromo?.discount ?? 0;
 
   const computeTripFare = (dist: number, vehicleType: string, discount: number = 0) => {
-    return calculateFullTripFare(dist, vehicleType, stats, discount).finalFare;
+    return calculateFullTripFare(dist, vehicleType, stats, discount, selectedRegion?.pricing).finalFare;
   };
 
   const calculateFareForLocation = (dropoff: { lat: number; lng: number }): number => {
@@ -473,12 +486,6 @@ export const RiderView: React.FC<RiderViewProps> = ({
     estimatedFare = computeTripFare(distance, requestedVehicleType, discountAmount);
     commissionRate = incomingCommission;
   }
-
-  // When the rider has selected a pickup region, only show drivers whose
-  // serviceAreas include that region. Drivers with no serviceAreas at all
-  // are treated as serving all areas (backward compatibility).
-  const selectedRegion = regions.find(r => r.id === selectedPickupRegion);
-  const selectedRegionName = selectedRegion?.nameAr || selectedRegion?.nameEn || '';
 
   const onlineDrivers = drivers.filter((d) => {
     if (!d.isOnline || d.approvalStatus !== 'APPROVED') return false;
@@ -1025,14 +1032,14 @@ export const RiderView: React.FC<RiderViewProps> = ({
           </div>
         )}
 
-{/* State 2b: Completed Trip — Return Home */}
+         {/* State 2b: Completed Trip — Return Home */}
          {activeTrip && activeTrip.riderId === rider.id && activeTrip.status === 'COMPLETED' && (
            <div className="bg-emerald-50 border border-emerald-200 rounded-2xl p-4 space-y-3 text-center">
              <div className="w-10 h-10 bg-emerald-100 text-emerald-600 rounded-full flex items-center justify-center mx-auto text-lg font-black">
                🎉
              </div>
              <h4 className="text-xs font-black text-emerald-900">
-               {lang === 'ar' ? 'تم إنهاء الرحلة بنجاح! 🎉' : 'Trip Finished Successfully! 🎉'}
+               {lang === 'ar' ? 'تم اكتمال الرحلة بنجاح! 🎉' : 'Trip Completed Successfully! 🎉'}
              </h4>
              <p className="text-[10px] text-emerald-700">
                {lang === 'ar'
@@ -1762,7 +1769,7 @@ export const RiderView: React.FC<RiderViewProps> = ({
                    🎉
                  </div>
                  <h4 className="text-xs font-black text-emerald-900">
-                   {lang === 'ar' ? 'تم إنهاء الرحلة بنجاح! 🎉' : 'Trip Finished Successfully! 🎉'}
+                   {lang === 'ar' ? 'تم اكتمال الرحلة بنجاح! 🎉' : 'Trip Completed Successfully! 🎉'}
                  </h4>
                  <p className="text-[10px] text-emerald-700">
                    {lang === 'ar'

@@ -1135,9 +1135,6 @@
             statsLoadedRef.current = true;
             setStats(merged);
             setLowDataMode(!!dbStats.lowDataMode);
-            if (JSON.stringify(merged) !== JSON.stringify(dbStats)) {
-              await saveStats(merged);
-            }
           } else {
             try {
               const { data, error } = await supabase
@@ -1629,20 +1626,20 @@
           playNotificationSound('trip_completed');
           speakText(
             lang === 'ar'
-              ? 'حمد لله على السلامة، تم إكمال الرحلة بنجاح وشكراً لاختيارك عز.'
-              : 'Welcome back, trip completed successfully. Thank you for choosing Ezz.',
+              ? 'حمد لله على السلامة، تم اكتمال الرحلة بنجاح وشكراً لاختيارك كابتن عز.'
+              : 'Welcome back, trip completed successfully. Thank you for choosing Captain Ezz.',
             lang === 'ar' ? 'ar-EG' : 'en-US'
           );
           sendNativeNotification(
-            '🎉 وصلت بالسلامة!',
-            'تم إكمال الرحلة بنجاح. شكراً لك على اختيارك كابتن عز!',
+            '🎉 تم اكتمال الرحلة بنجاح!',
+            'حمد لله على السلامة، تم اكتمال الرحلة بنجاح. شكراً لك على اختيارك كابتن عز!',
             '✨'
           );
-          startTitleFlash('✨ وصلت بالسلامة!');
+          startTitleFlash('✨ تم اكتمال الرحلة!');
           setTimeout(stopTitleFlash, 5000);
           triggerToast(
-            '🎉 وصلت بالسلامة!',
-            'تم إكمال الرحلة بنجاح. شكراً لك على اختيارك كابتن عز!',
+            '🎉 تم اكتمال الرحلة بنجاح!',
+            'حمد لله على السلامة، تم اكتمال الرحلة بنجاح. شكراً لثقتك بكابتن عز!',
             'success'
           );
         } else if (currentStatus === 'CANCELLED') {
@@ -1979,15 +1976,6 @@
       }
     }, [registeredRiders, supabaseConnected]);
 
-    useEffect(() => {
-      // Only persist once the initial stats have been loaded from Supabase.
-      // This prevents the default values from overwriting saved admin prices
-      // during the brief window before fetchStats() completes on load/refresh.
-      if (supabaseConnected && stats && statsLoadedRef.current) {
-        saveStats(stats);
-      }
-    }, [stats, supabaseConnected]);
-
     // GPS Movement Simulation loop (remains active background feature)
     useEffect(() => {
       if (!activeTrip || !activeTrip.driverId) return;
@@ -2138,10 +2126,18 @@
           }
         }
 
+        const selectedRegionObj = regions.find(r => r.id === riderPickupRegion);
+
         // Fallback: if real route unavailable, use estimated distance so trip still proceeds
         if (!distance) {
           const directDistance = calculateHaversineDistance(pLoc.lat, pLoc.lng, dLoc.lat, dLoc.lng);
-          const fallbackDistance = estimateDrivingDistance(directDistance, stats.distanceBuffer ?? 1.25) + (stats.additionalKm ?? 0.0);
+          const regionBuffer = (selectedRegionObj?.pricing?.customPricingEnabled && selectedRegionObj.pricing.distanceBuffer !== undefined && selectedRegionObj.pricing.distanceBuffer > 0)
+            ? selectedRegionObj.pricing.distanceBuffer
+            : (stats.distanceBuffer ?? 1.25);
+          const regionAddKm = (selectedRegionObj?.pricing?.customPricingEnabled && selectedRegionObj.pricing.additionalKm !== undefined)
+            ? selectedRegionObj.pricing.additionalKm
+            : (stats.additionalKm ?? 0.0);
+          const fallbackDistance = estimateDrivingDistance(directDistance, regionBuffer) + regionAddKm;
           distance = Math.max(1, parseFloat(fallbackDistance.toFixed(2)));
         }
 
@@ -2159,7 +2155,7 @@
           appliedPromoDiscount = appliedDiscount;
         }
 
-        const { baseFare, commission, finalFare } = calculateFullTripFare(distance, requestedVehicleType, stats, appliedDiscount);
+        const { baseFare, commission, finalFare } = calculateFullTripFare(distance, requestedVehicleType, stats, appliedDiscount, selectedRegionObj?.pricing);
         const fare = finalFare;
 
         // Broadcast dispatch to up to 5 available drivers in the region simultaneously.
@@ -2929,19 +2925,19 @@
           playNotificationSound('trip_completed');
           speakText(
             lang === 'ar'
-              ? 'تم إنهاء الرحلة بنجاح. حمد لله على السلامة.'
+              ? 'تم اكتمال الرحلة بنجاح. حمد لله على السلامة.'
               : 'Trip completed successfully. Thank you.',
             lang === 'ar' ? 'ar-EG' : 'en-US'
           );
           sendNativeNotification(
-            '🎉 تم إنهاء الرحلة',
-            'تم إكمال الرحلة بنجاح.',
+            '🎉 تم اكتمال الرحلة بنجاح',
+            'تم اكتمال المشوار وتحصيل الأجرة بنجاح.',
             '✨'
           );
           triggerVibration([200, 100, 200, 100, 300]);
           triggerToast(
-            '🎉 تم إنهاء الرحلة',
-            'تم إكمال الرحلة بنجاح.',
+            '🎉 تم اكتمال الرحلة بنجاح',
+            'تم اكتمال المشوار وتحصيل الأجرة بنجاح.',
             'success'
           );
         }
@@ -2987,36 +2983,34 @@
 
     const handleSavePricingStats = async (updatedStats: SystemStats) => {
       console.log('Saving pricing stats:', updatedStats);
+      try {
+        localStorage.setItem('ezz_system_stats', JSON.stringify(updatedStats));
+      } catch {}
       setStats(updatedStats);
       // Prevent the background sync loop from immediately overwriting
       // the freshly-saved pricing values while the server persists them.
-      pricingSaveGuardUntilRef.current = Date.now() + 10000; // 10s guard
+      pricingSaveGuardUntilRef.current = Date.now() + 30000; // 30s guard
       if (supabaseConnected) {
         const saved = await saveStats(updatedStats);
         console.log('saveStats result:', saved);
         if (saved) {
           triggerToast(
             lang === 'ar' ? 'تم حفظ الأسعار بنجاح' : 'Pricing saved',
-            lang === 'ar' ? 'تم تحديث الأسعار والعمولات بنجاح' : 'Fares and commissions updated successfully',
+            lang === 'ar' ? 'تم تحديث الأسعار والعمولات في قاعدة البيانات بنجاح' : 'Fares and commissions updated in database successfully',
             'success'
           );
-          // Force re-fetch to confirm the save persisted
-          const refetched = await fetchStats();
-          if (refetched) {
-            setStats(refetched);
-          }
         } else {
           triggerToast(
-            lang === 'ar' ? 'خطأ في الحفظ' : 'Save failed',
-            lang === 'ar' ? 'فشل حفظ التغييرات في قاعدة البيانات' : 'Failed to save pricing changes',
+            lang === 'ar' ? 'تم الحفظ محلياً' : 'Saved locally',
+            lang === 'ar' ? 'تم حفظ الأسعار محلياً ولكن تعذر التحديث في قاعدة البيانات. تحقق من أذونات الجدول.' : 'Saved locally but database update failed. Check table permissions.',
             'warning'
           );
         }
       } else {
         triggerToast(
-          lang === 'ar' ? 'غير متصل' : 'Offline',
-          lang === 'ar' ? 'لم يتم الحفظ - الاتصال مفصول' : 'Not saved - offline mode',
-          'warning'
+          lang === 'ar' ? 'تم الحفظ محلياً' : 'Saved locally',
+          lang === 'ar' ? 'تم حفظ الإعدادات على هذا الجهاز (وضع عدم الاتصال)' : 'Settings saved locally on this device (offline mode)',
+          'info'
         );
       }
     };
@@ -3426,8 +3420,8 @@
       }
 
       triggerToast(
-        lang === 'ar' ? 'تم إنهاء الرحلة' : 'Trip ended',
-        lang === 'ar' ? 'تم إنهاء الرحلة بنجاح من لوحة التحكم' : 'Trip has been ended from admin panel',
+        lang === 'ar' ? 'تم إكمال الرحلة' : 'Trip completed',
+        lang === 'ar' ? 'تم إكمال الرحلة بنجاح من لوحة التحكم' : 'Trip has been completed successfully from admin panel',
         'success'
       );
     };

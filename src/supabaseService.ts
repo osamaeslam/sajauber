@@ -173,6 +173,7 @@ CREATE TABLE IF NOT EXISTS ezz_regions (
   country TEXT NOT NULL,
   lat DOUBLE PRECISION,
   lng DOUBLE PRECISION,
+  pricing JSONB,
   created_at TEXT DEFAULT NOW()::TEXT
 );
 
@@ -399,6 +400,41 @@ CREATE TABLE IF NOT EXISTS ezz_stats (
   promo_value DOUBLE PRECISION DEFAULT 5,
   low_data_mode BOOLEAN DEFAULT true
 );
+
+-- الترحيل التلقائي للأعمدة في حال كان الجدول موجود مسبقاً
+ALTER TABLE IF EXISTS ezz_stats ADD COLUMN IF NOT EXISTS distance_buffer DOUBLE PRECISION DEFAULT 1.25;
+ALTER TABLE IF EXISTS ezz_stats ADD COLUMN IF NOT EXISTS additional_km DOUBLE PRECISION DEFAULT 0.0;
+ALTER TABLE IF EXISTS ezz_stats ADD COLUMN IF NOT EXISTS internal_commission DOUBLE PRECISION DEFAULT 10;
+ALTER TABLE IF EXISTS ezz_stats ADD COLUMN IF NOT EXISTS external_commission DOUBLE PRECISION DEFAULT 15;
+ALTER TABLE IF EXISTS ezz_stats ADD COLUMN IF NOT EXISTS support_whatsapp TEXT DEFAULT '201015555555';
+ALTER TABLE IF EXISTS ezz_stats ADD COLUMN IF NOT EXISTS car_base_fare DOUBLE PRECISION DEFAULT 20;
+ALTER TABLE IF EXISTS ezz_stats ADD COLUMN IF NOT EXISTS car_price_per_km DOUBLE PRECISION DEFAULT 8;
+ALTER TABLE IF EXISTS ezz_stats ADD COLUMN IF NOT EXISTS car_min_fare DOUBLE PRECISION DEFAULT 2;
+ALTER TABLE IF EXISTS ezz_stats ADD COLUMN IF NOT EXISTS car_price_per_km_20to50 DOUBLE PRECISION DEFAULT 8;
+ALTER TABLE IF EXISTS ezz_stats ADD COLUMN IF NOT EXISTS car_price_per_km_50plus DOUBLE PRECISION DEFAULT 8;
+ALTER TABLE IF EXISTS ezz_stats ADD COLUMN IF NOT EXISTS motorcycle_base_fare DOUBLE PRECISION DEFAULT 12;
+ALTER TABLE IF EXISTS ezz_stats ADD COLUMN IF NOT EXISTS motorcycle_price_per_km DOUBLE PRECISION DEFAULT 5;
+ALTER TABLE IF EXISTS ezz_stats ADD COLUMN IF NOT EXISTS motorcycle_min_fare DOUBLE PRECISION DEFAULT 2;
+ALTER TABLE IF EXISTS ezz_stats ADD COLUMN IF NOT EXISTS motorcycle_price_per_km_20to50 DOUBLE PRECISION DEFAULT 5;
+ALTER TABLE IF EXISTS ezz_stats ADD COLUMN IF NOT EXISTS motorcycle_price_per_km_50plus DOUBLE PRECISION DEFAULT 5;
+ALTER TABLE IF EXISTS ezz_stats ADD COLUMN IF NOT EXISTS toktok_base_fare DOUBLE PRECISION DEFAULT 10;
+ALTER TABLE IF EXISTS ezz_stats ADD COLUMN IF NOT EXISTS toktok_price_per_km DOUBLE PRECISION DEFAULT 4;
+ALTER TABLE IF EXISTS ezz_stats ADD COLUMN IF NOT EXISTS toktok_min_fare DOUBLE PRECISION DEFAULT 2;
+ALTER TABLE IF EXISTS ezz_stats ADD COLUMN IF NOT EXISTS toktok_price_per_km_20to50 DOUBLE PRECISION DEFAULT 4;
+ALTER TABLE IF EXISTS ezz_stats ADD COLUMN IF NOT EXISTS toktok_price_per_km_50plus DOUBLE PRECISION DEFAULT 4;
+ALTER TABLE IF EXISTS ezz_stats ADD COLUMN IF NOT EXISTS tricycle_base_fare DOUBLE PRECISION DEFAULT 10;
+ALTER TABLE IF EXISTS ezz_stats ADD COLUMN IF NOT EXISTS tricycle_price_per_km DOUBLE PRECISION DEFAULT 4;
+ALTER TABLE IF EXISTS ezz_stats ADD COLUMN IF NOT EXISTS tricycle_min_fare DOUBLE PRECISION DEFAULT 2;
+ALTER TABLE IF EXISTS ezz_stats ADD COLUMN IF NOT EXISTS tricycle_price_per_km_20to50 DOUBLE PRECISION DEFAULT 4;
+ALTER TABLE IF EXISTS ezz_stats ADD COLUMN IF NOT EXISTS tricycle_price_per_km_50plus DOUBLE PRECISION DEFAULT 4;
+ALTER TABLE IF EXISTS ezz_stats ADD COLUMN IF NOT EXISTS incoming_commission DOUBLE PRECISION DEFAULT 5;
+ALTER TABLE IF EXISTS ezz_stats ADD COLUMN IF NOT EXISTS outgoing_commission DOUBLE PRECISION DEFAULT 5;
+ALTER TABLE IF EXISTS ezz_stats ADD COLUMN IF NOT EXISTS incoming_commission_percent DOUBLE PRECISION DEFAULT 10;
+ALTER TABLE IF EXISTS ezz_stats ADD COLUMN IF NOT EXISTS outgoing_commission_percent DOUBLE PRECISION DEFAULT 10;
+ALTER TABLE IF EXISTS ezz_stats ADD COLUMN IF NOT EXISTS commission_mode TEXT DEFAULT 'fixed';
+ALTER TABLE IF EXISTS ezz_stats ADD COLUMN IF NOT EXISTS promo_code TEXT DEFAULT 'EZZ5';
+ALTER TABLE IF EXISTS ezz_stats ADD COLUMN IF NOT EXISTS promo_value DOUBLE PRECISION DEFAULT 5;
+ALTER TABLE IF EXISTS ezz_stats ADD COLUMN IF NOT EXISTS low_data_mode BOOLEAN DEFAULT true;
 
 -- ============================================================
 -- 7. جدول المديرين
@@ -997,15 +1033,16 @@ GRANT EXECUTE ON FUNCTION save_trip_to_history(TEXT, TEXT, TEXT, JSONB) TO anon;
 GRANT EXECUTE ON FUNCTION save_trip_to_history(TEXT, TEXT, TEXT, JSONB) TO authenticated;
 GRANT EXECUTE ON FUNCTION save_trip_to_history(TEXT, TEXT, TEXT, JSONB) TO service_role;
 
--- Stats: القراءة للجميع، التعديل للإدمن فقط
+-- Stats: القراءة للجميع، والكتابة متاحة لضمان حفظ أسعار النظام
 DROP POLICY IF EXISTS "Allow public read stats" ON ezz_stats;
+DROP POLICY IF EXISTS "public_read_stats" ON ezz_stats;
 CREATE POLICY "public_read_stats" ON ezz_stats FOR SELECT USING (true);
 DROP POLICY IF EXISTS "Allow public write stats" ON ezz_stats;
 DROP POLICY IF EXISTS "Allow public update stats" ON ezz_stats;
 DROP POLICY IF EXISTS "Allow public delete stats" ON ezz_stats;
-CREATE POLICY "admin_write_stats" ON ezz_stats FOR ALL TO anon USING (
-  EXISTS (SELECT 1 FROM ezz_sessions WHERE role = 'ADMIN')
-) WITH CHECK (true);
+DROP POLICY IF EXISTS "admin_write_stats" ON ezz_stats;
+DROP POLICY IF EXISTS "anon_write_stats" ON ezz_stats;
+CREATE POLICY "anon_write_stats" ON ezz_stats FOR ALL TO anon USING (true) WITH CHECK (true);
 
 -- Admin: القراءة متاحة لتسجيل الدخول الأول (كلمة السر مشفرة PBKDF2 والتحقق يتم في الـ client)
 DROP POLICY IF EXISTS "Allow public read admin" ON ezz_admin;
@@ -1338,6 +1375,7 @@ export const mapRegionFromDB = (row: any): Region => ({
   country: row.country || '',
   lat: row.lat || 0,
   lng: row.lng || 0,
+  pricing: row.pricing || undefined,
   createdAt: row.created_at || '',
 });
 
@@ -1348,6 +1386,7 @@ export const mapRegionToDB = (region: Region) => ({
   country: region.country,
   lat: region.lat,
   lng: region.lng,
+  pricing: region.pricing || null,
   created_at: region.createdAt,
 });
 
@@ -1587,12 +1626,12 @@ export const fetchActiveTrip = async (userId?: string, userRole?: 'rider' | 'dri
     let query = supabase.from('ezz_active_trip').select('*').order('created_at', { ascending: false });
 
     if (userRole === 'rider') {
-      query = query.eq('rider_id', userId).in('status', ['SEARCHING', 'ACCEPTED', 'ARRIVED', 'STARTED']);
+      query = query.eq('rider_id', userId).in('status', ['SEARCHING', 'ACCEPTED', 'ARRIVED', 'STARTED', 'COMPLETED', 'CANCELLED']);
     } else if (userRole === 'driver') {
       query = query.or(`driver_id.eq.${userId},current_offered_driver_id.eq.${userId}`);
-      query = query.in('status', ['SEARCHING', 'ACCEPTED', 'ARRIVED', 'STARTED']);
+      query = query.in('status', ['SEARCHING', 'ACCEPTED', 'ARRIVED', 'STARTED', 'COMPLETED', 'CANCELLED']);
     } else if (userRole === 'admin') {
-      query = query.in('status', ['SEARCHING', 'ACCEPTED', 'ARRIVED', 'STARTED']);
+      query = query.in('status', ['SEARCHING', 'ACCEPTED', 'ARRIVED', 'STARTED', 'COMPLETED', 'CANCELLED']);
     }
 
     const isDriverQuery = userRole === 'driver';
@@ -2047,76 +2086,96 @@ export const clearAllDriversInDB = async (): Promise<boolean> => {
 
 // Fetch Stats
 export const fetchStats = async (): Promise<SystemStats | null> => {
+  // Check local cache first
+  let cachedStats: Partial<SystemStats> | null = null;
+  try {
+    const raw = localStorage.getItem('ezz_system_stats');
+    if (raw) cachedStats = JSON.parse(raw);
+  } catch {}
+
   try {
     const result = await withRetry<any[]>(() =>
       supabase.from('ezz_stats').select('*').eq('id', 'singleton')
     );
     if (result.error) throw result.error;
-    if (!result.data || result.data.length === 0) return null;
+    if (!result.data || result.data.length === 0) {
+      return cachedStats as SystemStats || null;
+    }
     const row = result.data[0];
-  return {
-    commissionRate: row.commission_rate || 15,
-    totalRevenue: row.total_revenue || 0,
-    totalCommission: row.total_commission || 0,
-    totalCompletedTrips: row.total_completed_trips || 0,
-    fixedCommission: row.fixed_commission !== undefined && row.fixed_commission !== null ? row.fixed_commission : 10,
-    pricePerKm: row.price_per_km !== undefined && row.price_per_km !== null ? row.price_per_km : 8,
-    baseFare: row.base_fare !== undefined && row.base_fare !== null ? row.base_fare : 20,
-    distanceBuffer: row.distance_buffer !== undefined && row.distance_buffer !== null ? row.distance_buffer : 1.25,
-    additionalKm: row.additional_km !== undefined && row.additional_km !== null ? row.additional_km : 0.0,
-    internalCommission: row.internal_commission !== undefined && row.internal_commission !== null ? row.internal_commission : 10,
-    externalCommission: row.external_commission !== undefined && row.external_commission !== null ? row.external_commission : 15,
-    supportWhatsApp: row.support_whatsapp || '201015555555',
-    shortTripCommission: row.short_trip_commission !== undefined && row.short_trip_commission !== null ? row.short_trip_commission : 10,
-    longTripCommission: row.long_trip_commission !== undefined && row.long_trip_commission !== null ? row.long_trip_commission : 15,
-    freeKmThreshold: row.free_km_threshold !== undefined && row.free_km_threshold !== null ? row.free_km_threshold : 2,
-    carBaseFare: row.car_base_fare !== undefined && row.car_base_fare !== null ? row.car_base_fare : 20,
-    carPricePerKm: row.car_price_per_km !== undefined && row.car_price_per_km !== null ? row.car_price_per_km : 8,
-    carMinFare: row.car_min_fare !== undefined && row.car_min_fare !== null ? row.car_min_fare : 15,
-    carPricePerKm20to50: row.car_price_per_km_20to50 !== undefined && row.car_price_per_km_20to50 !== null ? row.car_price_per_km_20to50 : 8,
-    carPricePerKm50plus: row.car_price_per_km_50plus !== undefined && row.car_price_per_km_50plus !== null ? row.car_price_per_km_50plus : 8,
-    motorcycleBaseFare: row.motorcycle_base_fare !== undefined && row.motorcycle_base_fare !== null ? row.motorcycle_base_fare : 12,
-    motorcyclePricePerKm: row.motorcycle_price_per_km !== undefined && row.motorcycle_price_per_km !== null ? row.motorcycle_price_per_km : 5,
-    motorcycleMinFare: row.motorcycle_min_fare !== undefined && row.motorcycle_min_fare !== null ? row.motorcycle_min_fare : 10,
-    motorcyclePricePerKm20to50: row.motorcycle_price_per_km_20to50 !== undefined && row.motorcycle_price_per_km_20to50 !== null ? row.motorcycle_price_per_km_20to50 : 5,
-    motorcyclePricePerKm50plus: row.motorcycle_price_per_km_50plus !== undefined && row.motorcycle_price_per_km_50plus !== null ? row.motorcycle_price_per_km_50plus : 5,
-    toktokBaseFare: row.toktok_base_fare !== undefined && row.toktok_base_fare !== null ? row.toktok_base_fare : 10,
-    toktokPricePerKm: row.toktok_price_per_km !== undefined && row.toktok_price_per_km !== null ? row.toktok_price_per_km : 4,
-    toktokMinFare: row.toktok_min_fare !== undefined && row.toktok_min_fare !== null ? row.toktok_min_fare : 8,
-    toktokPricePerKm20to50: row.toktok_price_per_km_20to50 !== undefined && row.toktok_price_per_km_20to50 !== null ? row.toktok_price_per_km_20to50 : 4,
-    toktokPricePerKm50plus: row.toktok_price_per_km_50plus !== undefined && row.toktok_price_per_km_50plus !== null ? row.toktok_price_per_km_50plus : 4,
-    tricycleBaseFare: row.tricycle_base_fare !== undefined && row.tricycle_base_fare !== null ? row.tricycle_base_fare : 10,
-    tricyclePricePerKm: row.tricycle_price_per_km !== undefined && row.tricycle_price_per_km !== null ? row.tricycle_price_per_km : 4,
-    tricycleMinFare: row.tricycle_min_fare !== undefined && row.tricycle_min_fare !== null ? row.tricycle_min_fare : 8,
-    tricyclePricePerKm20to50: row.tricycle_price_per_km_20to50 !== undefined && row.tricycle_price_per_km_20to50 !== null ? row.tricycle_price_per_km_20to50 : 4,
-    tricyclePricePerKm50plus: row.tricycle_price_per_km_50plus !== undefined && row.tricycle_price_per_km_50plus !== null ? row.tricycle_price_per_km_50plus : 4,
-    incomingCommission: row.incoming_commission !== undefined && row.incoming_commission !== null ? row.incoming_commission : 5,
-    outgoingCommission: row.outgoing_commission !== undefined && row.outgoing_commission !== null ? row.outgoing_commission : 5,
-    incomingCommissionPercent: row.incoming_commission_percent !== undefined && row.incoming_commission_percent !== null ? row.incoming_commission_percent : 10,
-    outgoingCommissionPercent: row.outgoing_commission_percent !== undefined && row.outgoing_commission_percent !== null ? row.outgoing_commission_percent : 10,
-    commissionMode: row.commission_mode || 'fixed',
-    promoCode: row.promo_code || 'EZZ5',
-    promoValue: row.promo_value !== undefined && row.promo_value !== null ? row.promo_value : 5,
-    lowDataMode: !!(row.low_data_mode),
-  };
+    const remote: SystemStats = {
+      commissionRate: row.commission_rate ?? cachedStats?.commissionRate ?? 15,
+      totalRevenue: row.total_revenue || 0,
+      totalCommission: row.total_commission || 0,
+      totalCompletedTrips: row.total_completed_trips || 0,
+      fixedCommission: row.fixed_commission !== undefined && row.fixed_commission !== null ? row.fixed_commission : (cachedStats?.fixedCommission ?? 10),
+      pricePerKm: row.price_per_km !== undefined && row.price_per_km !== null ? row.price_per_km : (cachedStats?.pricePerKm ?? 8),
+      baseFare: row.base_fare !== undefined && row.base_fare !== null ? row.base_fare : (cachedStats?.baseFare ?? 20),
+      distanceBuffer: row.distance_buffer !== undefined && row.distance_buffer !== null ? row.distance_buffer : (cachedStats?.distanceBuffer ?? 1.25),
+      additionalKm: row.additional_km !== undefined && row.additional_km !== null ? row.additional_km : (cachedStats?.additionalKm ?? 0.0),
+      internalCommission: row.internal_commission !== undefined && row.internal_commission !== null ? row.internal_commission : (cachedStats?.internalCommission ?? 10),
+      externalCommission: row.external_commission !== undefined && row.external_commission !== null ? row.external_commission : (cachedStats?.externalCommission ?? 15),
+      supportWhatsApp: row.support_whatsapp || cachedStats?.supportWhatsApp || '201015555555',
+      shortTripCommission: row.short_trip_commission !== undefined && row.short_trip_commission !== null ? row.short_trip_commission : (cachedStats?.shortTripCommission ?? 10),
+      longTripCommission: row.long_trip_commission !== undefined && row.long_trip_commission !== null ? row.long_trip_commission : (cachedStats?.longTripCommission ?? 15),
+      freeKmThreshold: row.free_km_threshold !== undefined && row.free_km_threshold !== null ? row.free_km_threshold : (cachedStats?.freeKmThreshold ?? 2),
+      carBaseFare: row.car_base_fare !== undefined && row.car_base_fare !== null ? row.car_base_fare : (cachedStats?.carBaseFare ?? 20),
+      carPricePerKm: row.car_price_per_km !== undefined && row.car_price_per_km !== null ? row.car_price_per_km : (cachedStats?.carPricePerKm ?? 8),
+      carMinFare: row.car_min_fare !== undefined && row.car_min_fare !== null ? row.car_min_fare : (cachedStats?.carMinFare ?? 2),
+      carPricePerKm20to50: row.car_price_per_km_20to50 !== undefined && row.car_price_per_km_20to50 !== null ? row.car_price_per_km_20to50 : (cachedStats?.carPricePerKm20to50 ?? row.car_price_per_km ?? 8),
+      carPricePerKm50plus: row.car_price_per_km_50plus !== undefined && row.car_price_per_km_50plus !== null ? row.car_price_per_km_50plus : (cachedStats?.carPricePerKm50plus ?? row.car_price_per_km ?? 8),
+      motorcycleBaseFare: row.motorcycle_base_fare !== undefined && row.motorcycle_base_fare !== null ? row.motorcycle_base_fare : (cachedStats?.motorcycleBaseFare ?? 12),
+      motorcyclePricePerKm: row.motorcycle_price_per_km !== undefined && row.motorcycle_price_per_km !== null ? row.motorcycle_price_per_km : (cachedStats?.motorcyclePricePerKm ?? 5),
+      motorcycleMinFare: row.motorcycle_min_fare !== undefined && row.motorcycle_min_fare !== null ? row.motorcycle_min_fare : (cachedStats?.motorcycleMinFare ?? 2),
+      motorcyclePricePerKm20to50: row.motorcycle_price_per_km_20to50 !== undefined && row.motorcycle_price_per_km_20to50 !== null ? row.motorcycle_price_per_km_20to50 : (cachedStats?.motorcyclePricePerKm20to50 ?? row.motorcycle_price_per_km ?? 5),
+      motorcyclePricePerKm50plus: row.motorcycle_price_per_km_50plus !== undefined && row.motorcycle_price_per_km_50plus !== null ? row.motorcycle_price_per_km_50plus : (cachedStats?.motorcyclePricePerKm50plus ?? row.motorcycle_price_per_km ?? 5),
+      toktokBaseFare: row.toktok_base_fare !== undefined && row.toktok_base_fare !== null ? row.toktok_base_fare : (cachedStats?.toktokBaseFare ?? 10),
+      toktokPricePerKm: row.toktok_price_per_km !== undefined && row.toktok_price_per_km !== null ? row.toktok_price_per_km : (cachedStats?.toktokPricePerKm ?? 4),
+      toktokMinFare: row.toktok_min_fare !== undefined && row.toktok_min_fare !== null ? row.toktok_min_fare : (cachedStats?.toktokMinFare ?? 2),
+      toktokPricePerKm20to50: row.toktok_price_per_km_20to50 !== undefined && row.toktok_price_per_km_20to50 !== null ? row.toktok_price_per_km_20to50 : (cachedStats?.toktokPricePerKm20to50 ?? row.toktok_price_per_km ?? 4),
+      toktokPricePerKm50plus: row.toktok_price_per_km_50plus !== undefined && row.toktok_price_per_km_50plus !== null ? row.toktok_price_per_km_50plus : (cachedStats?.toktokPricePerKm50plus ?? row.toktok_price_per_km ?? 4),
+      tricycleBaseFare: row.tricycle_base_fare !== undefined && row.tricycle_base_fare !== null ? row.tricycle_base_fare : (cachedStats?.tricycleBaseFare ?? 10),
+      tricyclePricePerKm: row.tricycle_price_per_km !== undefined && row.tricycle_price_per_km !== null ? row.tricycle_price_per_km : (cachedStats?.tricyclePricePerKm ?? 4),
+      tricycleMinFare: row.tricycle_min_fare !== undefined && row.tricycle_min_fare !== null ? row.tricycle_min_fare : (cachedStats?.tricycleMinFare ?? 2),
+      tricyclePricePerKm20to50: row.tricycle_price_per_km_20to50 !== undefined && row.tricycle_price_per_km_20to50 !== null ? row.tricycle_price_per_km_20to50 : (cachedStats?.tricyclePricePerKm20to50 ?? row.tricycle_price_per_km ?? 4),
+      tricyclePricePerKm50plus: row.tricycle_price_per_km_50plus !== undefined && row.tricycle_price_per_km_50plus !== null ? row.tricycle_price_per_km_50plus : (cachedStats?.tricyclePricePerKm50plus ?? row.tricycle_price_per_km ?? 4),
+      incomingCommission: row.incoming_commission !== undefined && row.incoming_commission !== null ? row.incoming_commission : (cachedStats?.incomingCommission ?? 5),
+      outgoingCommission: row.outgoing_commission !== undefined && row.outgoing_commission !== null ? row.outgoing_commission : (cachedStats?.outgoingCommission ?? 5),
+      incomingCommissionPercent: row.incoming_commission_percent !== undefined && row.incoming_commission_percent !== null ? row.incoming_commission_percent : (cachedStats?.incomingCommissionPercent ?? 10),
+      outgoingCommissionPercent: row.outgoing_commission_percent !== undefined && row.outgoing_commission_percent !== null ? row.outgoing_commission_percent : (cachedStats?.outgoingCommissionPercent ?? 10),
+      commissionMode: row.commission_mode || cachedStats?.commissionMode || 'fixed',
+      promoCode: row.promo_code || cachedStats?.promoCode || 'EZZ5',
+      promoValue: row.promo_value !== undefined && row.promo_value !== null ? row.promo_value : (cachedStats?.promoValue ?? 5),
+      lowDataMode: row.low_data_mode !== undefined && row.low_data_mode !== null ? !!(row.low_data_mode) : (cachedStats?.lowDataMode ?? true),
+      mapProvider: cachedStats?.mapProvider || 'leaflet',
+      googleMapsApiKey: cachedStats?.googleMapsApiKey || '',
+    };
+    try {
+      localStorage.setItem('ezz_system_stats', JSON.stringify(remote));
+    } catch {}
+    return remote;
   } catch (err: any) {
     console.warn('Could not fetch stats from Supabase:', err.message);
-    return null;
+    return cachedStats as SystemStats || null;
   }
 };
 
 // Save Stats
 export const saveStats = async (stats: SystemStats): Promise<boolean> => {
+  // 1. Always cache immediately to LocalStorage so admin changes never get lost
   try {
-    const { error } = await supabase.from('ezz_stats').upsert({
+    localStorage.setItem('ezz_system_stats', JSON.stringify(stats));
+  } catch {}
+
+  try {
+    const payload: any = {
       id: 'singleton',
       commission_rate: stats.commissionRate,
       total_revenue: stats.totalRevenue,
       total_commission: stats.totalCommission,
       total_completed_trips: stats.totalCompletedTrips,
       fixed_commission: stats.fixedCommission,
-      price_per_km: stats.pricePerKm,
-      base_fare: stats.baseFare,
+      price_per_km: stats.carPricePerKm || stats.pricePerKm || 8,
+      base_fare: stats.carBaseFare || stats.baseFare || 20,
       distance_buffer: stats.distanceBuffer,
       additional_km: stats.additionalKm,
       internal_commission: stats.internalCommission,
@@ -2153,11 +2212,41 @@ export const saveStats = async (stats: SystemStats): Promise<boolean> => {
       promo_code: stats.promoCode,
       promo_value: stats.promoValue,
       low_data_mode: stats.lowDataMode,
-    });
-    if (error) throw error;
+    };
+
+    const { error } = await supabase.from('ezz_stats').upsert(payload);
+    if (error) {
+      console.warn('Full stats upsert failed, retrying with core columns fallback:', error.message);
+      // Fallback if some newer columns don't exist in user database table yet
+      const corePayload: any = {
+        id: 'singleton',
+        commission_rate: stats.commissionRate,
+        total_revenue: stats.totalRevenue,
+        total_commission: stats.totalCommission,
+        total_completed_trips: stats.totalCompletedTrips,
+        fixed_commission: stats.fixedCommission,
+        price_per_km: stats.carPricePerKm || stats.pricePerKm || 8,
+        base_fare: stats.carBaseFare || stats.baseFare || 20,
+        distance_buffer: stats.distanceBuffer,
+        additional_km: stats.additionalKm,
+        support_whatsapp: stats.supportWhatsApp,
+        car_base_fare: stats.carBaseFare,
+        car_price_per_km: stats.carPricePerKm,
+        motorcycle_base_fare: stats.motorcycleBaseFare,
+        motorcycle_price_per_km: stats.motorcyclePricePerKm,
+        toktok_base_fare: stats.toktokBaseFare,
+        toktok_price_per_km: stats.toktokPricePerKm,
+        tricycle_base_fare: stats.tricycleBaseFare,
+        tricycle_price_per_km: stats.tricyclePricePerKm,
+      };
+      const fallbackResult = await supabase.from('ezz_stats').upsert(corePayload);
+      if (fallbackResult.error) {
+        throw fallbackResult.error;
+      }
+    }
     return true;
   } catch (err: any) {
-    console.warn('Could not save stats to Supabase:', err.message);
+    console.warn('Could not save stats to Supabase:', err?.message || err);
     return false;
   }
 };

@@ -206,6 +206,37 @@ export interface AuditLogEntry {
   errorMessage?: string;
 }
 
+export interface RegionPricing {
+  customPricingEnabled?: boolean;
+  distanceBuffer?: number;
+  additionalKm?: number;
+  carBaseFare?: number;
+  carMinFare?: number;
+  carPricePerKm0to20?: number;
+  carPricePerKm20to50?: number;
+  carPricePerKm50plus?: number;
+  motorcycleBaseFare?: number;
+  motorcycleMinFare?: number;
+  motorcyclePricePerKm0to20?: number;
+  motorcyclePricePerKm20to50?: number;
+  motorcyclePricePerKm50plus?: number;
+  toktokBaseFare?: number;
+  toktokMinFare?: number;
+  toktokPricePerKm0to20?: number;
+  toktokPricePerKm20to50?: number;
+  toktokPricePerKm50plus?: number;
+  tricycleBaseFare?: number;
+  tricycleMinFare?: number;
+  tricyclePricePerKm0to20?: number;
+  tricyclePricePerKm20to50?: number;
+  tricyclePricePerKm50plus?: number;
+  commissionMode?: 'fixed' | 'percent';
+  incomingCommission?: number;
+  outgoingCommission?: number;
+  incomingCommissionPercent?: number;
+  outgoingCommissionPercent?: number;
+}
+
 export interface Region {
   id: string;
   nameAr: string;
@@ -213,6 +244,7 @@ export interface Region {
   country: string;
   lat?: number;
   lng?: number;
+  pricing?: RegionPricing;
   createdAt: string;
 }
 

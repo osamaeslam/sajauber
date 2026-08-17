@@ -16,10 +16,22 @@
       "purpose": "maskable"
     },
     {
-      "src": "/ezz_taxi_icon.jpg",
+      "src": "/app_car_icon.jpg",
       "type": "image/jpeg",
       "sizes": "192x192",
       "purpose": "any"
+    },
+    {
+      "src": "/app_car_icon.jpg",
+      "type": "image/jpeg",
+      "sizes": "512x512",
+      "purpose": "any"
+    },
+    {
+      "src": "/app_car_icon.jpg",
+      "type": "image/jpeg",
+      "sizes": "512x512",
+      "purpose": "maskable"
     },
     {
       "src": "/ezz_taxi_icon.jpg",

@@ -1,81 +1,147 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
   <defs>
+    <!-- Background Gradient (Deep Luxury Dark Blue/Slate) -->
     <linearGradient id="bgGrad" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" stop-color="#090d16" />
+      <stop offset="0%" stop-color="#0b0f19" />
       <stop offset="50%" stop-color="#0f172a" />
-      <stop offset="100%" stop-color="#020617" />
+      <stop offset="100%" stop-color="#030712" />
     </linearGradient>
+
+    <!-- Metallic Gold Gradient -->
     <linearGradient id="goldGrad" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" stop-color="#fef08a" />
-      <stop offset="35%" stop-color="#f59e0b" />
-      <stop offset="70%" stop-color="#d97706" />
+      <stop offset="0%" stop-color="#fffbeb" />
+      <stop offset="25%" stop-color="#fde047" />
+      <stop offset="55%" stop-color="#f59e0b" />
+      <stop offset="85%" stop-color="#d97706" />
+      <stop offset="100%" stop-color="#92400e" />
+    </linearGradient>
+
+    <!-- Glowing Yellow/Gold Accent -->
+    <linearGradient id="carBodyGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#fbbf24" />
+      <stop offset="60%" stop-color="#f59e0b" />
       <stop offset="100%" stop-color="#b45309" />
     </linearGradient>
-    <linearGradient id="glowGrad" x1="0%" y1="0%" x2="0%" y2="100%">
-      <stop offset="0%" stop-color="#fbbf24" stop-opacity="0.3" />
-      <stop offset="100%" stop-color="#f59e0b" stop-opacity="0" />
+
+    <!-- Glass Windshield Gradient -->
+    <linearGradient id="glassGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#1e293b" />
+      <stop offset="100%" stop-color="#0f172a" />
     </linearGradient>
+
+    <!-- Subtle Radial Aura -->
+    <radialGradient id="glowAura" cx="50%" cy="45%" r="48%">
+      <stop offset="0%" stop-color="#f59e0b" stop-opacity="0.35" />
+      <stop offset="60%" stop-color="#d97706" stop-opacity="0.08" />
+      <stop offset="100%" stop-color="#0f172a" stop-opacity="0" />
+    </radialGradient>
+
+    <!-- Filters for Soft Glow & Drop Shadow -->
     <filter id="goldGlow" x="-20%" y="-20%" width="140%" height="140%">
-      <feGaussianBlur stdDeviation="8" result="blur" />
+      <feGaussianBlur stdDeviation="6" result="blur" />
       <feComposite in="SourceGraphic" in2="blur" operator="over" />
     </filter>
-    <filter id="cardShadow" x="-10%" y="-10%" width="120%" height="120%">
-      <feDropShadow dx="0" dy="12" stdDeviation="16" flood-color="#000000" flood-opacity="0.6" />
+    <filter id="carShadow" x="-30%" y="-30%" width="160%" height="160%">
+      <feDropShadow dx="0" dy="16" stdDeviation="18" flood-color="#000000" flood-opacity="0.75" />
     </filter>
   </defs>
 
-  <!-- Background Canvas with Rounded Squircle (App Icon Style) -->
-  <rect width="512" height="512" rx="112" fill="url(#bgGrad)" />
-  
-  <!-- Subtle Outer Gold Border -->
-  <rect x="8" y="8" width="496" height="496" rx="104" fill="none" stroke="url(#goldGrad)" stroke-width="5" stroke-opacity="0.4" />
-  
-  <!-- Glow Circle Behind Icon -->
-  <circle cx="256" cy="230" r="160" fill="url(#glowGrad)" />
+  <!-- iOS / Android Squircle Container -->
+  <rect width="512" height="512" rx="116" fill="url(#bgGrad)" />
 
-  <!-- Taxi / Steering Wheel Emblem -->
-  <g filter="url(#goldGlow)">
-    <!-- Outer Steering Wheel Ring -->
-    <circle cx="256" cy="220" r="118" fill="none" stroke="url(#goldGrad)" stroke-width="14" stroke-linecap="round" />
-    <circle cx="256" cy="220" r="96" fill="none" stroke="url(#goldGrad)" stroke-width="3" stroke-dasharray="6 8" stroke-opacity="0.6" />
+  <!-- Ambient Glow Behind Car -->
+  <circle cx="256" cy="220" r="180" fill="url(#glowAura)" />
+
+  <!-- Modern Subtle Metallic Outer Border -->
+  <rect x="6" y="6" width="500" height="500" rx="110" fill="none" stroke="url(#goldGrad)" stroke-width="4" stroke-opacity="0.35" />
+
+  <!-- Road / Motion Base Horizon -->
+  <ellipse cx="256" cy="335" rx="150" ry="18" fill="#000000" fill-opacity="0.6" filter="blur(8px)" />
+  <path d="M 120 330 Q 256 342 392 330" stroke="url(#goldGrad)" stroke-width="3" stroke-linecap="round" stroke-opacity="0.4" fill="none" />
+
+  <!-- ================= LUXURY MODERN TAXI CAR ================= -->
+  <g filter="url(#carShadow)">
+    <!-- 1. TAXI ROOF LIGHT (SIGN) -->
+    <path d="M 226 128 L 286 128 L 294 140 L 218 140 Z" fill="url(#goldGrad)" />
+    <text x="256" y="137" font-family="system-ui, -apple-system, sans-serif" font-size="9" font-weight="900" text-anchor="middle" fill="#0f172a" letter-spacing="1">TAXI</text>
+    <circle cx="256" cy="134" r="14" fill="#fbbf24" fill-opacity="0.2" filter="blur(3px)" />
+
+    <!-- 2. CAR ROOF & PILLARS -->
+    <path d="M 194 186 C 204 154, 222 144, 256 144 C 290 144, 308 154, 318 186 Z" fill="url(#carBodyGrad)" stroke="url(#goldGrad)" stroke-width="2" />
     
-    <!-- Central Taxi Cab Silhouette -->
-    <!-- Taxi Roof Light -->
-    <path d="M 230 148 L 282 148 L 274 136 L 238 136 Z" fill="url(#goldGrad)" />
-    <!-- Taxi Body -->
-    <path d="M 194 212 L 206 172 C 208 164, 218 158, 230 158 L 282 158 C 294 158, 304 164, 306 172 L 318 212 C 324 216, 328 224, 328 234 L 328 266 C 328 272, 322 276, 316 276 L 308 276 L 308 286 C 308 292, 300 296, 292 296 L 284 296 C 278 296, 274 292, 274 286 L 274 276 L 238 276 L 238 286 C 238 292, 234 296, 228 296 L 220 296 C 212 296, 204 292, 204 286 L 204 276 L 196 276 C 190 276, 184 272, 184 266 L 184 234 C 184 224, 188 216, 194 212 Z" fill="#0f172a" stroke="url(#goldGrad)" stroke-width="7" stroke-linejoin="round" />
+    <!-- 3. WINDSHIELD (FRONT GLASS) -->
+    <path d="M 200 184 L 214 154 C 220 150, 234 148, 256 148 C 278 148, 292 150, 298 154 L 312 184 Z" fill="url(#glassGrad)" stroke="#334155" stroke-width="1.5" />
+    <!-- Windshield Reflection -->
+    <path d="M 218 156 L 246 156 L 230 182 L 208 182 Z" fill="#ffffff" fill-opacity="0.18" />
+
+    <!-- 4. CAR SIDE MIRRORS -->
+    <ellipse cx="160" cy="204" rx="14" ry="9" fill="url(#carBodyGrad)" stroke="url(#goldGrad)" stroke-width="2" />
+    <ellipse cx="352" cy="204" rx="14" ry="9" fill="url(#carBodyGrad)" stroke="url(#goldGrad)" stroke-width="2" />
+    <ellipse cx="162" cy="204" rx="9" ry="6" fill="#0f172a" />
+    <ellipse cx="350" cy="204" rx="9" ry="6" fill="#0f172a" />
+
+    <!-- 5. MAIN HOOD & FRONT CABIN (DYNAMIC MODERN AERODYNAMIC SHAPE) -->
+    <path d="M 170 196 C 182 190, 220 188, 256 188 C 292 188, 330 190, 342 196 C 362 206, 372 230, 368 260 L 360 292 C 358 298, 350 302, 340 302 L 172 302 C 162 302, 154 298, 152 292 L 144 260 C 140 230, 150 206, 170 196 Z" fill="url(#carBodyGrad)" stroke="url(#goldGrad)" stroke-width="3.5" stroke-linejoin="round" />
+
+    <!-- Hood Character Lines -->
+    <path d="M 210 194 L 218 240" stroke="#b45309" stroke-width="2.5" stroke-linecap="round" />
+    <path d="M 302 194 L 294 240" stroke="#b45309" stroke-width="2.5" stroke-linecap="round" />
+
+    <!-- 6. FRONT GRILLE (PREMIUM HONEYCOMB/HORIZONTAL SLATS) -->
+    <rect x="206" y="246" width="100" height="38" rx="8" fill="#090d16" stroke="url(#goldGrad)" stroke-width="2" />
+    <!-- Grille Slats -->
+    <line x1="214" y1="255" x2="298" y2="255" stroke="#334155" stroke-width="2" />
+    <line x1="214" y1="264" x2="298" y2="264" stroke="#334155" stroke-width="2" />
+    <line x1="214" y1="273" x2="298" y2="273" stroke="#334155" stroke-width="2" />
+    <!-- Emblem on Grille -->
+    <circle cx="256" cy="264" r="8" fill="url(#goldGrad)" />
+    <circle cx="256" cy="264" r="5" fill="#090d16" />
+
+    <!-- 7. LUXURY LED HEADLIGHTS (ANGULAR & GLOWING) -->
+    <!-- Left Headlight -->
+    <path d="M 162 230 C 172 230, 192 236, 196 248 C 188 252, 168 252, 156 244 C 154 238, 156 232, 162 230 Z" fill="#ffffff" stroke="url(#goldGrad)" stroke-width="2" filter="url(#goldGlow)" />
+    <circle cx="178" cy="242" r="5" fill="#38bdf8" />
+    <circle cx="166" cy="240" r="3" fill="#fef08a" />
+
+    <!-- Right Headlight -->
+    <path d="M 350 230 C 340 230, 320 236, 316 248 C 324 252, 344 252, 356 244 C 358 238, 356 232, 350 230 Z" fill="#ffffff" stroke="url(#goldGrad)" stroke-width="2" filter="url(#goldGlow)" />
+    <circle cx="334" cy="242" r="5" fill="#38bdf8" />
+    <circle cx="346" cy="240" r="3" fill="#fef08a" />
+
+    <!-- 8. LOWER BUMPER & WHEEL ACCENTS -->
+    <!-- Lower Lip / Splitter -->
+    <path d="M 166 294 L 346 294 L 338 308 L 174 308 Z" fill="#020617" stroke="url(#goldGrad)" stroke-width="1.5" />
+    <!-- Front Fog/DRL Lights -->
+    <rect x="176" y="282" width="22" height="4" rx="2" fill="#38bdf8" filter="url(#goldGlow)" />
+    <rect x="314" y="282" width="22" height="4" rx="2" fill="#38bdf8" filter="url(#goldGlow)" />
     
-    <!-- Taxi Windshield -->
-    <path d="M 214 204 L 224 174 C 226 170, 230 168, 236 168 L 276 168 C 282 168, 286 170, 288 174 L 298 204 Z" fill="url(#goldGrad)" fill-opacity="0.85" />
-    
-    <!-- Headlights -->
-    <circle cx="206" cy="242" r="8" fill="#fef08a" />
-    <circle cx="306" cy="242" r="8" fill="#fef08a" />
-    <rect x="232" y="240" width="48" height="12" rx="4" fill="url(#goldGrad)" />
-    
-    <!-- Speed/Navigation Wings -->
-    <path d="M 112 220 L 150 220" stroke="url(#goldGrad)" stroke-width="8" stroke-linecap="round" />
-    <path d="M 362 220 L 400 220" stroke="url(#goldGrad)" stroke-width="8" stroke-linecap="round" />
-    <path d="M 124 242 L 148 242" stroke="url(#goldGrad)" stroke-width="5" stroke-linecap="round" opacity="0.7" />
-    <path d="M 364 242 L 388 242" stroke="url(#goldGrad)" stroke-width="5" stroke-linecap="round" opacity="0.7" />
+    <!-- Wheels Visible Behind Bumper -->
+    <rect x="144" y="278" width="16" height="34" rx="6" fill="#020617" stroke="#334155" stroke-width="1.5" />
+    <rect x="352" y="278" width="16" height="34" rx="6" fill="#020617" stroke="#334155" stroke-width="1.5" />
+    <!-- Tires tread line -->
+    <line x1="148" y1="285" x2="148" y2="305" stroke="#475569" stroke-width="2" />
+    <line x1="360" y1="285" x2="360" y2="305" stroke="#475569" stroke-width="2" />
   </g>
 
-  <!-- Luxury Arabic & English Typography Badge -->
-  <!-- "كابتن عز" -->
-  <text x="256" y="380" font-family="'Cairo', 'Tajawal', 'Segoe UI', system-ui, sans-serif" font-size="52" font-weight="900" text-anchor="middle" fill="url(#goldGrad)" letter-spacing="1">
-    كابتن عِـز
-  </text>
-  <!-- Subtitle: CAPTAIN EZZ RIDE -->
-  <text x="256" y="420" font-family="'Inter', 'Montserrat', system-ui, sans-serif" font-size="20" font-weight="800" text-anchor="middle" fill="#94a3b8" letter-spacing="6">
+  <!-- ================= TYPOGRAPHY & BRANDING ================= -->
+  <!-- "كابتن عز" Gold Arabic Calligraphy Typography -->
+  <g filter="url(#goldGlow)">
+    <text x="256" y="394" font-family="'Cairo', 'Tajawal', 'Segoe UI', system-ui, sans-serif" font-size="46" font-weight="900" text-anchor="middle" fill="url(#goldGrad)" letter-spacing="1.5">
+      كابتن عِـز
+    </text>
+  </g>
+
+  <!-- Sub-label: LUXURY RIDE & DELIVERY -->
+  <text x="256" y="428" font-family="'Inter', 'Montserrat', -apple-system, sans-serif" font-size="15" font-weight="800" text-anchor="middle" fill="#94a3b8" letter-spacing="5">
     CAPTAIN EZZ
   </text>
-  
-  <!-- Modern 5 Stars Quality Badge -->
-  <g fill="url(#goldGrad)" transform="translate(196, 442) scale(0.65)">
-    <polygon points="12,2 15,9 23,9 17,14 19,22 12,17 5,22 7,14 1,9 9,9" />
-    <polygon points="42,2 45,9 53,9 47,14 49,22 42,17 35,22 37,14 31,9 39,9" />
-    <polygon points="72,2 75,9 83,9 77,14 79,22 72,17 65,22 67,14 61,9 69,9" />
-    <polygon points="102,2 105,9 113,9 107,14 109,22 102,17 95,22 97,14 91,9 99,9" />
-    <polygon points="132,2 135,9 143,9 137,14 139,22 132,17 125,22 127,14 121,9 129,9" />
+
+  <!-- 5 Gold Quality Stars -->
+  <g fill="url(#goldGrad)" transform="translate(186, 444) scale(0.7)">
+    <polygon points="15,2 19,11 29,11 21,18 24,28 15,22 6,28 9,18 1,11 11,11" />
+    <polygon points="45,2 49,11 59,11 51,18 54,28 45,22 36,28 39,18 31,11 41,11" />
+    <polygon points="75,2 79,11 89,11 81,18 84,28 75,22 66,28 69,18 61,11 71,11" />
+    <polygon points="105,2 109,11 119,11 111,18 114,28 105,22 96,28 99,18 91,11 101,11" />
+    <polygon points="135,2 139,11 149,11 141,18 144,28 135,22 126,28 129,18 121,11 131,11" />
   </g>
 </svg>
