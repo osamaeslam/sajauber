@@ -599,7 +599,12 @@ export const RiderView: React.FC<RiderViewProps> = ({
             {rider.name[0]}
           </div>
           <div>
-            <h4 className="text-xs font-semibold text-slate-800">{rider.name}</h4>
+            <div className="flex items-center gap-1.5">
+              <h4 className="text-xs font-semibold text-slate-800">{rider.name}</h4>
+              <span className="bg-blue-50 text-blue-700 border border-blue-200/70 text-[9px] px-1.5 py-0.2 rounded-full font-bold">
+                {lang === 'ar' ? `${rider.totalTrips || 0} رحلة مكتملة` : `${rider.totalTrips || 0} completed`}
+              </span>
+            </div>
             <p className="text-[10px] text-slate-400">{rider.phone}</p>
           </div>
         </div>
@@ -911,15 +916,9 @@ export const RiderView: React.FC<RiderViewProps> = ({
                   </p>
                 </div>
                 <div className="text-right">
-                  <div className="flex items-center gap-0.5 text-amber-500 justify-end">
-                    <Star className="w-3 h-3 fill-amber-500 text-amber-500" />
-                    <span className="text-xs font-bold">
-                      {drivers.find((d) => d.id === activeTrip.driverId)?.rating}
-                    </span>
-                  </div>
                   <a
                     href={`tel:${drivers.find((d) => d.id === activeTrip.driverId)?.phone}`}
-                    className="inline-flex items-center gap-1 mt-1 text-[10px] text-blue-600 bg-blue-50 border border-blue-100 px-2 py-0.5 rounded-full hover:bg-blue-100 transition-colors pointer-events-auto"
+                    className="inline-flex items-center gap-1 text-[10px] text-blue-600 bg-blue-50 border border-blue-100 px-2.5 py-1 rounded-full hover:bg-blue-100 font-bold transition-colors pointer-events-auto shadow-xs"
                   >
                     <Phone className="w-2.5 h-2.5" />
                     <span>{lang === 'ar' ? 'اتصال' : 'Call'}</span>

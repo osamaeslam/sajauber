@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Driver, Trip, Location, SystemStats, Region } from '../types';
-import { ToggleRight, MapPin, Navigation, DollarSign, Wallet, Check, AlertTriangle, Users, Star, MessageSquare, Bell, ShieldAlert, Loader2, ChevronRight, ChevronLeft, Plus, X, Volume2 } from 'lucide-react';
+import { ToggleRight, MapPin, Navigation, DollarSign, Wallet, Check, AlertTriangle, Users, MessageSquare, Bell, ShieldAlert, Loader2, ChevronRight, ChevronLeft, Plus, X, Volume2 } from 'lucide-react';
 import { play10SecondRingtone, speakText, triggerVibration, unlockAudioContext, stop10SecondRingtone } from '../utils/notifications';
 
 interface DriverViewProps {
@@ -379,10 +379,8 @@ export const DriverView: React.FC<DriverViewProps> = ({
               </div>
               <p className="text-[10px] opacity-90 truncate leading-tight">{currentDriver.carModel} • {currentDriver.carPlate}</p>
               <div className="flex items-center gap-1.5 mt-0.5 text-[10px]">
-                <div className="flex items-center gap-0.5 text-amber-200">
-                  <Star className="w-3 h-3 fill-amber-300 text-amber-300" />
-                  <span className="font-bold text-white">{currentDriver.rating}</span>
-                  <span className="text-[9px] opacity-80">({currentDriver.totalTrips})</span>
+                <div className="bg-white/15 px-1.5 py-0.5 rounded-full text-[9px] font-semibold">
+                  {lang === 'ar' ? `${currentDriver.totalTrips || 0} رحلة مكتملة` : `${currentDriver.totalTrips || 0} completed`}
                 </div>
                 <div className="bg-white/15 px-1.5 py-0.5 rounded-full text-[9px] font-semibold">{currentDriver.vehicleName}</div>
               </div>

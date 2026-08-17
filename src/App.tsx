@@ -2858,7 +2858,7 @@
               ...d,
               status: 'AVAILABLE' as const,
               isOnline: true,
-              totalTrips: d.totalTrips + 1,
+              totalTrips: (d.totalTrips || 0) + 1,
               totalEarnings: d.totalEarnings + netEarnings,
               totalCommissionPaid: d.totalCommissionPaid + commission,
             };
@@ -2872,14 +2872,18 @@
               await new Promise((resolve) => setTimeout(resolve, 1000));
               saved = await saveDriver(updatedDriver);
             }
-            if (!saved) {
-              console.error('[handleEndTrip] Failed to save driver stats after retry');
-              triggerToast(
-                lang === 'ar' ? 'خطأ في حفظ بيانات السائق' : 'Failed to save driver data',
-                lang === 'ar' ? 'تم تحديث البيانات محلياً لكن لم يتم حفظها على السيرفر' : 'Data updated locally but not saved to server',
-                'warning'
-              );
-            }
+          }
+        }
+
+        if (activeTrip.riderId) {
+          const currentRiderId = activeTrip.riderId;
+          setRegisteredRiders((prev) =>
+            prev.map((r) => (r.id === currentRiderId ? { ...r, totalTrips: (r.totalTrips || 0) + 1 } : r))
+          );
+          setRider((prev) => (prev && prev.id === currentRiderId ? { ...prev, totalTrips: (prev.totalTrips || 0) + 1 } : prev));
+          const rObj = registeredRiders.find((r) => r.id === currentRiderId);
+          if (rObj && supabaseConnected) {
+            saveRider({ ...rObj, totalTrips: (rObj.totalTrips || 0) + 1 }).catch(() => {});
           }
         }
 
