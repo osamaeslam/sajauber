@@ -1,7 +1,20 @@
 {
   "short_name": "كابتن عز",
-  "name": "كابتن عز - Captain Ezz",
+  "name": "كابتن عز - مشاوير وتوصيل فوري",
+  "description": "تطبيق كابتن عز لطلب الرحلات وتوصيل المشاوير الفورية في مصر بأعلى معايير الأمان والسرعة",
   "icons": [
+    {
+      "src": "/icon.svg",
+      "type": "image/svg+xml",
+      "sizes": "any",
+      "purpose": "any"
+    },
+    {
+      "src": "/icon.svg",
+      "type": "image/svg+xml",
+      "sizes": "512x512",
+      "purpose": "maskable"
+    },
     {
       "src": "/ezz_taxi_icon.jpg",
       "type": "image/jpeg",
@@ -17,24 +30,39 @@
   ],
   "shortcuts": [
     {
-      "name": "رحلة جديدة",
-      "short_name": "رحلة",
-      "description": "اطلب رحلة جديدة",
+      "name": "طلب رحلة جديدة",
+      "short_name": "مشوار جديد",
+      "description": "اطلب سيارة أو موتوسيكل أو توكتوك في ثوانٍ",
       "url": "/?screen=HOME",
       "icons": [
         {
-          "src": "/ezz_taxi_icon.jpg",
+          "src": "/icon.svg",
+          "sizes": "96x96"
+        }
+      ]
+    },
+    {
+      "name": "لوحة الكابتن",
+      "short_name": "الكابتن",
+      "description": "تسجيل الدخول وبدء استقبال طلبات الركاب",
+      "url": "/?screen=DRIVER_LOGIN",
+      "icons": [
+        {
+          "src": "/icon.svg",
           "sizes": "96x96"
         }
       ]
     }
   ],
-  "categories": ["transportation", "navigation"],
+  "categories": ["transportation", "navigation", "travel"],
   "start_url": "/",
   "scope": "/",
-  "background_color": "#0f172a",
-  "theme_color": "#2563eb",
+  "lang": "ar",
+  "dir": "rtl",
+  "background_color": "#090d16",
+  "theme_color": "#0f172a",
   "display": "standalone",
-  "orientation": "portrait",
+  "display_override": ["standalone", "window-controls-overlay", "minimal-ui"],
+  "orientation": "portrait-primary",
   "prefer_related_applications": false
 }

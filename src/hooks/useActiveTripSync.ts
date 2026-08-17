@@ -66,6 +66,8 @@ export const useActiveTripSync = ({
     if (!supabaseConnected) return;
     const userId = driverIsLoggedIn ? selectedDriverId : (riderId || undefined);
     const userRole = driverIsLoggedIn ? 'driver' : (riderId ? 'rider' : undefined);
+    if (!userId || !userRole) return;
+
     const sub = subscribeToActiveTrips(
       (trip) => {
         setActiveTripWithTracking((prev: Trip | null) => {
@@ -78,6 +80,20 @@ export const useActiveTripSync = ({
           if (dismissedTripIdsRef.current.has(trip.id)) {
             return null;
           }
+
+          // Strict identity check: trip must belong to this user
+          if (userRole === 'rider' && trip.riderId !== userId) {
+            return prev;
+          }
+          if (userRole === 'driver') {
+            const isAssigned = trip.driverId === userId;
+            const isCurrentOffered = trip.currentOfferedDriverId === userId;
+            const isOffered = !!(trip.offeredDriverIds && trip.offeredDriverIds.includes(userId));
+            if (!isAssigned && !isCurrentOffered && !isOffered) {
+              return prev;
+            }
+          }
+
           if (!prev) return trip;
           if (prev.status === 'COMPLETED' && !dismissedTripIdsRef.current.has(prev.id)) {
             return prev;
@@ -119,16 +135,16 @@ export const useActiveTripSync = ({
   // Dedicated polling for active trip
   useEffect(() => {
     if (!supabaseConnected) return;
+    const userId = driverIsLoggedIn ? selectedDriverId : (riderId || undefined);
+    const userRole = driverIsLoggedIn ? 'driver' : (riderId ? 'rider' : undefined);
+    if (!userId || !userRole) return;
 
     const pollInterval = dataSaverMode ? 180000 : 120000;
 
     const interval = setInterval(async () => {
       if (!isMountedRef.current) return;
       try {
-        const remoteActiveTrip = await fetchActiveTrip(
-          driverIsLoggedIn ? selectedDriverId : (riderId || undefined),
-          driverIsLoggedIn ? 'driver' : (riderId ? 'rider' : undefined)
-        );
+        const remoteActiveTrip = await fetchActiveTrip(userId, userRole);
         if (!isMountedRef.current) return;
         if (!remoteActiveTrip) {
           setActiveTripWithTracking((prev: Trip | null) => {

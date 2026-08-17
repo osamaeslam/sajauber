@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Driver, Trip, Location, SystemStats, Region } from '../types';
-import { ToggleRight, MapPin, Navigation, DollarSign, Wallet, Check, AlertTriangle, Users, Star, MessageSquare, Bell, ShieldAlert, Loader2, ChevronRight, ChevronLeft, Plus, X } from 'lucide-react';
+import { ToggleRight, MapPin, Navigation, DollarSign, Wallet, Check, AlertTriangle, Users, Star, MessageSquare, Bell, ShieldAlert, Loader2, ChevronRight, ChevronLeft, Plus, X, Volume2 } from 'lucide-react';
+import { play10SecondRingtone, speakText, triggerVibration, unlockAudioContext, stop10SecondRingtone } from '../utils/notifications';
 
 interface DriverViewProps {
   drivers: Driver[];
@@ -103,6 +104,32 @@ export const DriverView: React.FC<DriverViewProps> = ({
   // PWA Service Worker & Push Notification state
   const [swRegistered, setSwRegistered] = useState(false);
   const [pushStatus, setPushStatus] = useState<'granted' | 'denied' | 'default'>('default');
+  const [soundTesting, setSoundTesting] = useState(false);
+
+  const handleTestSound = () => {
+    try {
+      unlockAudioContext();
+      setSoundTesting(true);
+      play10SecondRingtone();
+      triggerVibration([300, 150, 300, 150, 500]);
+      if (lang === 'ar') {
+        speakText('تنبيه كابتن عز! يوجد طلب مشوار جديد في منطقتك، اضغط للموافقة');
+      } else {
+        speakText('Captain Ezz alert! New ride request received in your coverage area');
+      }
+      setTimeout(() => {
+        setSoundTesting(false);
+      }, 7000);
+    } catch (err) {
+      console.warn('Sound test error:', err);
+      setSoundTesting(false);
+    }
+  };
+
+  const handleStopSoundTest = () => {
+    stop10SecondRingtone();
+    setSoundTesting(false);
+  };
 
   useEffect(() => {
     if ('serviceWorker' in navigator) {
@@ -409,6 +436,18 @@ export const DriverView: React.FC<DriverViewProps> = ({
             >
               <span>{lowDataMode ? '📡' : '📶'}</span>
               <span>{lowDataMode ? (lang === 'ar' ? 'توفير مفعّل' : 'Low Data') : (lang === 'ar' ? 'وفر بيانات' : 'Save Data')}</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={soundTesting ? handleStopSoundTest : handleTestSound}
+              className={`px-2.5 py-1 rounded-full text-[10px] font-extrabold cursor-pointer pointer-events-auto transition-all flex items-center gap-1 ${
+                soundTesting ? 'bg-amber-300 text-slate-950 animate-pulse' : 'bg-white/20 hover:bg-white/30 text-white'
+              }`}
+              title={lang === 'ar' ? 'تجربة رنة التنبيه والصوت للكابتن' : 'Test driver ringtone & voice'}
+            >
+              <Volume2 className="w-3 h-3 text-amber-300" />
+              <span>{soundTesting ? (lang === 'ar' ? 'جاري الرنين...' : 'Ringing...') : (lang === 'ar' ? 'تجربة الرنة 🔊' : 'Test Sound')}</span>
             </button>
           </div>
 

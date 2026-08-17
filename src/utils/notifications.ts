@@ -775,3 +775,5 @@ export const stopLoudRepeatingAlarm = () => {
     } catch (e) {}
   }
 };
+
+export const stop10SecondRingtone = stopLoudRepeatingAlarm;

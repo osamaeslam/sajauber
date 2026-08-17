@@ -54,7 +54,7 @@ self.addEventListener('notificationclick', (event) => {
 });
 
 self.addEventListener('push', (event) => {
-  let payload = { title: 'Ezz Ride', body: 'You have a new notification' };
+  let payload = { title: 'كابتن عز 🚖', body: 'يوجد طلب مشوار جديد!' };
   if (event.data) {
     try {
       payload = event.data.json();
@@ -66,11 +66,11 @@ self.addEventListener('push', (event) => {
   payload.data.url = payload.data.url || payload.url || '/?playNotification=1';
   const options = {
     body: payload.body,
-    icon: '/favicon.ico',
-    badge: '/favicon.ico',
-    tag: 'ezz-ride-notification',
+    icon: '/icon.svg',
+    badge: '/icon.svg',
+    tag: payload.data.tag || 'ezz-ride-notification',
     requireInteraction: true,
-    vibrate: payload.data.vibrate || [300, 100, 300],
+    vibrate: payload.data.vibrate || [500, 200, 500, 200, 500],
     data: payload.data,
   };
   event.waitUntil(self.registration.showNotification(payload.title, options));
@@ -85,11 +85,11 @@ self.addEventListener('message', (event) => {
     const { title, body, icon, tag, vibrate, url } = event.data;
     const options = {
       body,
-      icon: icon || '/favicon.ico',
-      badge: icon || '/favicon.ico',
+      icon: icon || '/icon.svg',
+      badge: '/icon.svg',
       tag: tag || title,
       requireInteraction: true,
-      vibrate: vibrate || [300, 100, 300, 100, 400],
+      vibrate: vibrate || [500, 200, 500, 200, 500],
       data: { url: url || '/?playNotification=1' },
     };
     event.waitUntil(self.registration.showNotification(title, options));

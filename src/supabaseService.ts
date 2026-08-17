@@ -1579,16 +1579,23 @@ export const deleteRiderInDB = async (riderId: string): Promise<boolean> => {
 // Fetch Active Trip
 export const fetchActiveTrip = async (userId?: string, userRole?: 'rider' | 'driver' | 'admin'): Promise<Trip | null> => {
   try {
+    // If no userId or userRole is provided (and not admin), NEVER return arbitrary trips from the DB
+    if (!userId || !userRole) {
+      return null;
+    }
+
     let query = supabase.from('ezz_active_trip').select('*').order('created_at', { ascending: false });
 
-    if (userId && userRole === 'rider') {
+    if (userRole === 'rider') {
       query = query.eq('rider_id', userId).in('status', ['SEARCHING', 'ACCEPTED', 'ARRIVED', 'STARTED']);
-    } else if (userId && userRole === 'driver') {
+    } else if (userRole === 'driver') {
       query = query.or(`driver_id.eq.${userId},current_offered_driver_id.eq.${userId}`);
+      query = query.in('status', ['SEARCHING', 'ACCEPTED', 'ARRIVED', 'STARTED']);
+    } else if (userRole === 'admin') {
       query = query.in('status', ['SEARCHING', 'ACCEPTED', 'ARRIVED', 'STARTED']);
     }
 
-    const isDriverQuery = userId && userRole === 'driver';
+    const isDriverQuery = userRole === 'driver';
     const result = await withRetry<any[]>(() => query.limit(isDriverQuery ? 5 : 1));
     const { data, error } = result;
     if (error) {
@@ -1599,11 +1606,10 @@ export const fetchActiveTrip = async (userId?: string, userRole?: 'rider' | 'dri
       throw error;
     }
     if (!data || data.length === 0) {
-      console.log('[fetchActiveTrip] No active trip in DB (empty result)');
       return null;
     }
 
-    if (userId && userRole === 'driver') {
+    if (userRole === 'driver') {
       const relevant = data.find((row: any) => {
         const trip = mapTripFromDB(row);
         if (trip.driverId === userId) return true;
@@ -1619,7 +1625,14 @@ export const fetchActiveTrip = async (userId?: string, userRole?: 'rider' | 'dri
       return null;
     }
 
-    console.log('[fetchActiveTrip] Found active trip:', data[0].id, 'status:', data[0].status, 'for role:', userRole);
+    if (userRole === 'rider') {
+      const trip = mapTripFromDB(data[0]);
+      if (trip.riderId === userId) {
+        return trip;
+      }
+      return null;
+    }
+
     return mapTripFromDB(data[0]);
   } catch (err: any) {
     console.warn('Could not fetch active trip from Supabase:', err.message);
@@ -1726,12 +1739,16 @@ export const subscribeToActiveTrips = (
         }
         if (payload.new) {
           const trip = mapTripFromDB(payload.new);
-          if (userId && userRole === 'rider' && trip.riderId !== userId) return;
-          if (userId && userRole === 'driver') {
+          if (userRole === 'rider') {
+            if (!userId || trip.riderId !== userId) return;
+          } else if (userRole === 'driver') {
+            if (!userId) return;
             const isAssignedDriver = trip.driverId === userId;
             const isCurrentOffered = trip.currentOfferedDriverId === userId;
             const isOffered = !!(trip.offeredDriverIds && trip.offeredDriverIds.includes(userId));
             if (!isAssignedDriver && !isCurrentOffered && !isOffered) return;
+          } else if (userRole !== 'admin') {
+            return;
           }
           onTrip(trip);
         }

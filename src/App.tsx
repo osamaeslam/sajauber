@@ -162,7 +162,13 @@
         if (stored) {
           const parsed = JSON.parse(stored);
           if (parsed && parsed.id && parsed.status && ['SEARCHING', 'ACCEPTED', 'ARRIVED', 'STARTED'].includes(parsed.status)) {
-            return parsed as Trip;
+            // Check that cached trip is fresh (less than 1 hour old)
+            const tripAgeMs = parsed.createdAt ? (Date.now() - new Date(parsed.createdAt).getTime()) : 0;
+            if (tripAgeMs < 60 * 60 * 1000) {
+              return parsed as Trip;
+            } else {
+              localStorage.removeItem('ezz_active_trip_cache');
+            }
           }
         }
       } catch {}
@@ -1098,7 +1104,6 @@
             dbAds,
             session,
             dbStats,
-            dbActiveTrip,
           ] = await Promise.all([
             fetchLocations(),
             fetchDrivers(),
@@ -1107,10 +1112,6 @@
             fetchAds(),
             loadSession(),
             fetchStats(),
-            fetchActiveTrip(
-              driverIsLoggedIn ? selectedDriverId : (rider.id || undefined),
-              driverIsLoggedIn ? 'driver' : (rider.id ? 'rider' : undefined)
-            ),
           ]);
 
           if (dbLocations && dbLocations.length > 0) {
@@ -1127,9 +1128,6 @@
           }
           if (dbAds) {
             setAds(dbAds);
-          }
-          if (dbActiveTrip) {
-            setActiveTripWithTracking(dbActiveTrip);
           }
 
           if (dbStats) {
@@ -1161,6 +1159,12 @@
                 setRider({ ...r, isLoggedIn: true });
                 restoreRiderPickupRegion(r);
                 if (supabaseConnected) setAppRole('RIDER');
+                const riderTrip = await fetchActiveTrip(r.id, 'rider');
+                if (riderTrip) {
+                  setActiveTripWithTracking(riderTrip);
+                } else {
+                  setActiveTripWithTracking(null);
+                }
               }
             } else if (session.role === 'DRIVER') {
               const d = dbDrivers?.find(x => x.id === session.userId);
@@ -1171,13 +1175,16 @@
                 const driverTrip = await fetchActiveTrip(d.id, 'driver');
                 if (driverTrip) {
                   setActiveTripWithTracking(driverTrip);
+                } else {
+                  setActiveTripWithTracking(null);
                 }
               }
             } else if (session.role === 'ADMIN') {
               setAdminIsLoggedIn(true);
               if (supabaseConnected) setAppRole('ADMIN');
             }
-
+          } else {
+            setActiveTripWithTracking(null);
           }
 
           setSessionLoaded(true);
@@ -2446,6 +2453,12 @@
         setDrivers((prev) =>
           prev.map((d) => (d.id === driverId ? { ...d, status: 'AVAILABLE' } : d))
         );
+        if (supabaseConnected) {
+          const currentDrv = drivers.find((d) => d.id === driverId);
+          if (currentDrv) {
+            saveDriver({ ...currentDrv, status: 'AVAILABLE' }).catch(() => {});
+          }
+        }
       }
 
       const cancelledTrip = {
@@ -2843,8 +2856,8 @@
             if (d.id !== driverId) return d;
             return {
               ...d,
-              status: 'OFFLINE' as const,
-              isOnline: false,
+              status: 'AVAILABLE' as const,
+              isOnline: true,
               totalTrips: d.totalTrips + 1,
               totalEarnings: d.totalEarnings + netEarnings,
               totalCommissionPaid: d.totalCommissionPaid + commission,

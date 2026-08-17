@@ -98,14 +98,6 @@ export const useInitialLoad = ({
             setAds(dbAds);
           }
 
-          const dbActiveTrip = await fetchActiveTrip(
-            driverIsLoggedIn ? selectedDriverId : (rider?.id || undefined),
-            driverIsLoggedIn ? 'driver' : (rider?.id ? 'rider' : undefined)
-          );
-          if (dbActiveTrip) {
-            setActiveTripWithTracking(dbActiveTrip);
-          }
-
           const session = await loadSession();
           if (session) {
             if (session.role !== 'ADMIN') {
@@ -141,22 +133,30 @@ export const useInitialLoad = ({
               const r = dbRiders?.find((x: any) => x.id === session.userId);
               if (r) {
                 setRider({ ...r, isLoggedIn: true });
+                const riderTrip = await fetchActiveTrip(r.id, 'rider');
+                if (riderTrip) {
+                  setActiveTripWithTracking(riderTrip);
+                } else {
+                  setActiveTripWithTracking(null);
+                }
               }
             } else if (session.role === 'DRIVER') {
               const d = dbDrivers?.find((x: any) => x.id === session.userId);
               if (d) {
                 setSelectedDriverId(d.id);
                 setDriverIsLoggedIn(true);
-                (async () => {
-                  const driverTrip = await fetchActiveTrip(d.id, 'driver');
-                  if (driverTrip) {
-                    setActiveTripWithTracking(driverTrip);
-                  }
-                })();
+                const driverTrip = await fetchActiveTrip(d.id, 'driver');
+                if (driverTrip) {
+                  setActiveTripWithTracking(driverTrip);
+                } else {
+                  setActiveTripWithTracking(null);
+                }
               }
             } else if (session.role === 'ADMIN') {
               setAdminIsLoggedIn(true);
             }
+          } else {
+            setActiveTripWithTracking(null);
           }
           setSessionLoaded(true);
         } else {
