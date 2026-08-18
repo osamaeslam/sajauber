@@ -177,6 +177,8 @@ CREATE TABLE IF NOT EXISTS ezz_regions (
   created_at TEXT DEFAULT NOW()::TEXT
 );
 
+ALTER TABLE IF EXISTS ezz_regions ADD COLUMN IF NOT EXISTS pricing JSONB;
+
 -- ============================================================
 -- 2. جدول الركاب
 -- ============================================================
@@ -2612,15 +2614,6 @@ export const deleteLocationInDB = async (id: string): Promise<boolean> => {
 // --- REGIONS CRUD ---
 
 export const fetchRegions = async (): Promise<Region[] | null> => {
-  let cachedRegions: Region[] | null = null;
-  try {
-    const raw = localStorage.getItem('ezz_regions_cache');
-    if (raw) {
-      const parsed = JSON.parse(raw);
-      if (Array.isArray(parsed)) cachedRegions = parsed;
-    }
-  } catch {}
-
   try {
     const { data, error } = await supabase.from('ezz_regions').select('*').order('created_at', { ascending: true });
     if (error) throw error;
@@ -2631,35 +2624,40 @@ export const fetchRegions = async (): Promise<Region[] | null> => {
     return remote;
   } catch (err: any) {
     console.warn('Could not fetch regions from Supabase:', err.message);
-    return cachedRegions;
+    const raw = localStorage.getItem('ezz_regions_cache');
+    if (raw) {
+      try {
+        const parsed = JSON.parse(raw);
+        if (Array.isArray(parsed)) return parsed;
+      } catch {}
+    }
+    return null;
   }
 };
 
 export const saveRegion = async (region: Region): Promise<boolean> => {
-  const missing = !validateRegionPricing(region.pricing);
-  if (missing) {
-    console.warn('[saveRegion] Rejected incomplete region pricing');
-  }
-  // 1. Immediately cache in localStorage so user configuration is never lost
+  const normalized = ensureRegionPricing(region);
+  const payload = mapRegionToDB(normalized);
   try {
     const raw = localStorage.getItem('ezz_regions_cache');
     let list: Region[] = raw ? JSON.parse(raw) : [];
     if (!Array.isArray(list)) list = [];
-    const index = list.findIndex(r => r.id === region.id);
+    const index = list.findIndex(r => r.id === normalized.id);
     if (index >= 0) {
-      list[index] = region;
+      list[index] = normalized;
     } else {
-      list.push(region);
+      list.push(normalized);
     }
     localStorage.setItem('ezz_regions_cache', JSON.stringify(list));
   } catch {}
 
   try {
-    const { error } = await supabase.from('ezz_regions').upsert(mapRegionToDB(region));
+    const { error } = await supabase.from('ezz_regions').upsert(payload);
     if (error) throw error;
     return true;
   } catch (err: any) {
-    console.warn('Could not save region to Supabase:', err.message);
+    const msg = err?.message || String(err);
+    console.warn('[saveRegion] Could not save region to Supabase:', msg);
     return false;
   }
 };

@@ -324,10 +324,10 @@ export const AdminView: React.FC<AdminViewProps> = ({
         );
       } else {
         triggerToast(
-          lang === 'ar' ? 'تم الحفظ محلياً 💾' : 'Saved Locally',
+          lang === 'ar' ? 'فشل الحفظ في السحابة ❌' : 'Cloud Save Failed',
           lang === 'ar'
-            ? `تم حفظ تسعيرة منطقة "${targetRegion.nameAr}" على جهازك. لحفظها سحابياً في Supabase، يرجى تشغيل كود إنشاء جدول ezz_regions من الـ SQL Editor`
-            : `Pricing saved locally. To save in Supabase, ensure ezz_regions table exists in Supabase.`,
+            ? `لم يتم حفظ تسعيرة منطقة "${targetRegion.nameAr}" في Supabase. تأكد أن جدول ezz_regions موجود وبه عمود pricing، وأن الـ RLS Policies سابحة الكتابة.`
+            : `Failed to save pricing for region "${targetRegion.nameAr}" to Supabase. Ensure ezz_regions table exists with a pricing column and RLS policies allow writes.`,
           'warning'
         );
       }
