@@ -168,11 +168,21 @@ export function calculateFullTripFare(
   vehicleType: string,
   stats: any,
   appliedDiscount: number = 0,
-  regionPricing?: any
-): { baseFare: number; commission: number; finalFare: number } {
+  regionPricing?: any,
+  isRoundTrip: boolean = false,
+  waitingMinutes: number = 0
+): { baseFare: number; commission: number; finalFare: number; waitingFee: number; totalDistance: number } {
   const effectiveStats = getEffectiveStats(stats, regionPricing);
   const pricing = getVehiclePricing(effectiveStats, vehicleType);
-  let computedBase = calculateVehicleFare(distance, pricing);
+  
+  // If round trip: travel distance is 2x one-way distance
+  const effectiveDistance = isRoundTrip ? parseFloat((distance * 2).toFixed(2)) : distance;
+  let computedBase = calculateVehicleFare(effectiveDistance, pricing);
+
+  // Waiting fee: e.g. 0.75 EGP / min for waiting
+  const waitingRatePerMinute = effectiveStats?.waitingRatePerMinute ?? 0.75;
+  const waitingFee = isRoundTrip && waitingMinutes > 0 ? Math.round(waitingMinutes * waitingRatePerMinute) : 0;
+  computedBase += waitingFee;
 
   // Apply Peak/Night Hour multipliers
   const peakHourMultiplier = effectiveStats?.peakHourMultiplier ?? 1.0;
@@ -206,9 +216,7 @@ export function calculateFullTripFare(
   if (commissionMode === 'percent') {
     commission = Math.round((discountedBase * commissionRateValue) / 100);
   } else {
-    commission = (vehicleType === 'CAR' || vehicleType === 'MOTORCYCLE' || vehicleType === 'TOKTOK' || vehicleType === 'TRICYCLE')
-      ? incomingCommissionFixed
-      : outgoingCommissionFixed;
+    commission = incomingCommissionFixed;
   }
 
   const finalFare = discountedBase + commission;
@@ -217,6 +225,8 @@ export function calculateFullTripFare(
     baseFare: discountedBase,
     commission,
     finalFare,
+    waitingFee,
+    totalDistance: effectiveDistance,
   };
 }
 

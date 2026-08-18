@@ -1717,48 +1717,6 @@ export const AdminView: React.FC<AdminViewProps> = ({
                     </div>
                   </div>
                 </div>
-
-                {/* Tricycle Pricing */}
-                <div className="bg-slate-50 border border-slate-200/60 rounded-xl p-3 space-y-2">
-                  <div className="flex items-center gap-2">
-                    <span className="text-lg">🚲</span>
-                    <h4 className="text-[11px] font-black text-slate-800">
-                      {lang === 'ar' ? 'تروسيكل' : 'Tricycle'}
-                    </h4>
-                  </div>
-                  <div className="grid grid-cols-3 gap-2">
-                    <div>
-                      <label className="text-[9px] font-bold text-slate-600 block mb-1">
-                        {lang === 'ar' ? 'سعر فتح العداد (ج.م)' : 'Base Fare (EGP)'}
-                      </label>
-                      <input type="number" value={pricingForm.tricycleBaseFare} onChange={(e) => updatePricingField('tricycleBaseFare', Number(e.target.value))} className="w-full bg-white border border-slate-200 rounded-lg p-1.5 text-[10px] text-center font-bold" />
-                    </div>
-                    <div>
-                      <label className="text-[9px] font-bold text-slate-600 block mb-1">
-                        {lang === 'ar' ? 'الحد الأدنى للكيلو (كم)' : 'Min Fare (km)'}
-                      </label>
-                      <input type="number" step="0.5" value={pricingForm.tricycleMinFare} onChange={(e) => updatePricingField('tricycleMinFare', Number(e.target.value))} className="w-full bg-white border border-slate-200 rounded-lg p-1.5 text-[10px] text-center font-bold" />
-                    </div>
-                    <div>
-                      <label className="text-[9px] font-bold text-slate-600 block mb-1">
-                        {lang === 'ar' ? 'سعر الكيلو (0-20)' : 'Price per km (0-20)'}
-                      </label>
-                      <input type="number" value={pricingForm.tricyclePricePerKm0to20} onChange={(e) => updatePricingField('tricyclePricePerKm0to20', Number(e.target.value))} className="w-full bg-white border border-slate-200 rounded-lg p-1.5 text-[10px] text-center font-bold" />
-                    </div>
-                    <div>
-                      <label className="text-[9px] font-bold text-slate-600 block mb-1">
-                        {lang === 'ar' ? 'سعر الكيلو (20-50)' : 'Price per km (20-50)'}
-                      </label>
-                      <input type="number" value={pricingForm.tricyclePricePerKm20to50} onChange={(e) => updatePricingField('tricyclePricePerKm20to50', Number(e.target.value))} className="w-full bg-white border border-slate-200 rounded-lg p-1.5 text-[10px] text-center font-bold" />
-                    </div>
-                    <div>
-                      <label className="text-[9px] font-bold text-slate-600 block mb-1">
-                        {lang === 'ar' ? 'سعر الكيلو (50+)' : 'Price per km (50+)'}
-                      </label>
-                      <input type="number" value={pricingForm.tricyclePricePerKm50plus} onChange={(e) => updatePricingField('tricyclePricePerKm50plus', Number(e.target.value))} className="w-full bg-white border border-slate-200 rounded-lg p-1.5 text-[10px] text-center font-bold" />
-                    </div>
-                  </div>
-                </div>
               </div>
             </div>
 

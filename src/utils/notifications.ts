@@ -641,128 +641,149 @@ const isDuplicateNotification = (tag: string): boolean => {
   return false;
 };
 
+// --- Screen WakeLock Helper (Keeps screen awake for drivers) ---
+let wakeLockSentinel: any = null;
+
+export const requestScreenWakeLock = async (): Promise<boolean> => {
+  if (typeof navigator === 'undefined' || !('wakeLock' in navigator)) {
+    return false;
+  }
+  try {
+    if (!wakeLockSentinel || wakeLockSentinel.released) {
+      wakeLockSentinel = await (navigator as any).wakeLock.request('screen');
+      console.log('[WakeLock] Screen WakeLock acquired successfully');
+      wakeLockSentinel.addEventListener('release', () => {
+        console.log('[WakeLock] Screen WakeLock was released');
+        wakeLockSentinel = null;
+      });
+      return true;
+    }
+    return true;
+  } catch (err: any) {
+    console.warn('[WakeLock] Could not acquire Screen WakeLock:', err?.message || err);
+    return false;
+  }
+};
+
+export const releaseScreenWakeLock = async () => {
+  try {
+    if (wakeLockSentinel && !wakeLockSentinel.released) {
+      await wakeLockSentinel.release();
+      wakeLockSentinel = null;
+      console.log('[WakeLock] Screen WakeLock manually released');
+    }
+  } catch (err) {
+    console.warn('[WakeLock] Release error:', err);
+  }
+};
+
+// Re-acquire WakeLock on visibility change if app returns to foreground
+if (typeof document !== 'undefined') {
+  document.addEventListener('visibilitychange', async () => {
+    if (document.visibilityState === 'visible' && activeRingtoneTimer) {
+      await requestScreenWakeLock();
+    }
+  });
+}
+
 /**
- * Play a pleasant repeating ringtone chime for 10 seconds for driver ride requests.
+ * Continuous high-attention phone-call style repeating ringtone for Driver ride requests.
+ * Loops uninterrupted until explicitly stopped by accept, decline, or timeout.
  */
 let activeRingtoneTimer: ReturnType<typeof setInterval> | null = null;
+let activeVoiceRepeatTimer: ReturnType<typeof setInterval> | null = null;
 
-export const play10SecondRingtone = () => {
-  if (activeRingtoneTimer) {
-    clearInterval(activeRingtoneTimer);
-    activeRingtoneTimer = null;
-  }
+export const playContinuousRingtone = (options?: {
+  title?: string;
+  body?: string;
+  speechText?: string;
+  lang?: string;
+}) => {
+  // Stop any previous active alarm first
+  stopContinuousRingtone();
 
   unlockAudioContext();
-  const ctx = getAudioContext();
-  if (ctx.state === 'suspended') {
-    ctx.resume().catch(() => {});
+  requestScreenWakeLock();
+
+  const isAr = (options?.lang || 'ar-EG').startsWith('ar');
+  const title = options?.title || (isAr ? '🚖 طلب مشوار جديد!' : '🚖 New Ride Request!');
+  const voiceText = options?.speechText || (isAr ? 'يوجد طلب مشوار جديد، يرجى الاستجابة' : 'New ride request available, please respond');
+
+  // 1. Initial voice alert & title flash
+  speakText(voiceText, options?.lang || (isAr ? 'ar-EG' : 'en-US'));
+  startTitleFlash(`🚨 ${title}`);
+
+  // 2. Native push / background notification
+  if (options?.body) {
+    sendNativeNotification(title, options.body, '🚖', 'ride-request-' + Date.now());
   }
 
-  let count = 0;
-  const maxRings = 8; // ~10 seconds loop
-
-  const playChime = () => {
+  // 3. Audio Chime Function (Simulates loud realistic phone ring chime)
+  const playDualToneRing = () => {
     try {
+      const ctx = getAudioContext();
+      if (ctx.state === 'suspended') {
+        ctx.resume().catch(() => {});
+      }
       const now = ctx.currentTime;
+      const vol = 0.65 * getVolume();
+
+      // Tone Pair 1 (High bell)
       const osc1 = ctx.createOscillator();
       const gain1 = ctx.createGain();
-      osc1.type = 'sine';
-      osc1.frequency.setValueAtTime(880, now);
-      gain1.gain.setValueAtTime(0.5, now);
-      gain1.gain.exponentialRampToValueAtTime(0.01, now + 0.35);
+      osc1.type = 'triangle';
+      osc1.frequency.setValueAtTime(783.99, now); // G5
+      osc1.frequency.setValueAtTime(880.00, now + 0.15); // A5
+      gain1.gain.setValueAtTime(vol, now);
+      gain1.gain.exponentialRampToValueAtTime(0.01, now + 0.45);
       osc1.connect(gain1);
       gain1.connect(ctx.destination);
       osc1.start(now);
-      osc1.stop(now + 0.4);
+      osc1.stop(now + 0.5);
 
+      // Tone Pair 2 (Harmonic ringing chord)
       const osc2 = ctx.createOscillator();
       const gain2 = ctx.createGain();
       osc2.type = 'sine';
-      osc2.frequency.setValueAtTime(1174.66, now + 0.25);
-      gain2.gain.setValueAtTime(0.5, now + 0.25);
-      gain2.gain.exponentialRampToValueAtTime(0.01, now + 0.6);
+      osc2.frequency.setValueAtTime(1046.50, now + 0.2); // C6
+      osc2.frequency.setValueAtTime(1318.51, now + 0.35); // E6
+      gain2.gain.setValueAtTime(vol, now + 0.2);
+      gain2.gain.exponentialRampToValueAtTime(0.01, now + 0.7);
       osc2.connect(gain2);
       gain2.connect(ctx.destination);
-      osc2.start(now + 0.25);
-      osc2.stop(now + 0.65);
+      osc2.start(now + 0.2);
+      osc2.stop(now + 0.75);
+
+      // Mobile Vibration pulse on each ring
+      triggerVibration([400, 150, 400, 150, 500]);
     } catch (e) {
-      console.warn('[play10SecondRingtone] Audio failed:', e);
+      console.warn('[playContinuousRingtone] Audio error:', e);
+      playAudioFallback('new_trip');
     }
   };
 
-  playChime();
+  // Play immediately
+  playDualToneRing();
+
+  // Loop every 1.5 seconds continuously until stopped
   activeRingtoneTimer = setInterval(() => {
-    count++;
-    if (count >= maxRings) {
-      if (activeRingtoneTimer) {
-        clearInterval(activeRingtoneTimer);
-        activeRingtoneTimer = null;
-      }
-      return;
-    }
-    playChime();
-  }, 1200);
+    playDualToneRing();
+  }, 1500);
+
+  // Periodic voice reminder every 9 seconds
+  activeVoiceRepeatTimer = setInterval(() => {
+    speakText(voiceText, options?.lang || (isAr ? 'ar-EG' : 'en-US'));
+  }, 9000);
 };
 
-/**
- * Play a 10-second ringtone, voice alert, vibration, and background notification for driver ride requests.
- */
-export const notifyRideRequest = (title: string, body: string, lang = 'ar-EG') => {
-  if (alarmInterval) {
-    clearInterval(alarmInterval);
-    alarmInterval = null;
-  }
-
-  const isAr = lang === 'ar-EG';
-
-  // 1. Play 10-second ringtone chime
-  play10SecondRingtone();
-
-  // 2. Speak voice alert
-  speakText(
-    isAr ? 'يوجد طلب مشوار جديد، يرجى الاستجابة' : 'New ride request available, please respond',
-    lang
-  );
-
-  // 3. Trigger mobile vibration pattern for incoming ride
-  triggerVibration([500, 200, 500, 200, 500, 200, 500]);
-
-  // 4. Send background / native push notification with sound & vibration
-  sendNativeNotification(
-    title,
-    body,
-    '🚖',
-    'ride-request-' + Date.now()
-  );
-
-  // 5. Flash title in browser tab
-  startTitleFlash(`🚨 ${title}`);
-  setTimeout(stopTitleFlash, 10000);
-};
-
-/**
- * Old repeating alarm — kept for compatibility but now rings ONCE and stops.
- */
-export const startLoudRepeatingAlarm = (
-  messageEn: string,
-  soundType: 'new_trip' | 'alert' | 'trip_accepted' | 'rating' = 'new_trip',
-  arabicMessage?: string
-) => {
-  if (alarmInterval) {
-    clearInterval(alarmInterval);
-    alarmInterval = null;
-  }
-
-  const voiceMsg = arabicMessage || messageEn;
-  const displayTitle = arabicMessage ? '🚖 طلب مشوار جديد!' : '🚖 New Ride Request!';
-
-  notifyRideRequest(displayTitle, voiceMsg, arabicMessage ? 'ar-EG' : 'en-US');
-};
-
-export const stopLoudRepeatingAlarm = () => {
+export const stopContinuousRingtone = () => {
   if (activeRingtoneTimer) {
     clearInterval(activeRingtoneTimer);
     activeRingtoneTimer = null;
+  }
+  if (activeVoiceRepeatTimer) {
+    clearInterval(activeVoiceRepeatTimer);
+    activeVoiceRepeatTimer = null;
   }
   if (alarmInterval) {
     clearInterval(alarmInterval);
@@ -776,4 +797,29 @@ export const stopLoudRepeatingAlarm = () => {
   }
 };
 
-export const stop10SecondRingtone = stopLoudRepeatingAlarm;
+// Aliases for compatibility
+export const play10SecondRingtone = (options?: any) => {
+  playContinuousRingtone(options);
+};
+
+export const stop10SecondRingtone = stopContinuousRingtone;
+export const stopLoudRepeatingAlarm = stopContinuousRingtone;
+
+export const notifyRideRequest = (title: string, body: string, lang = 'ar-EG') => {
+  playContinuousRingtone({
+    title,
+    body,
+    lang,
+    speechText: lang.startsWith('ar') ? 'يوجد طلب مشوار جديد، يرجى الاستجابة' : 'New ride request available, please respond',
+  });
+};
+
+export const startLoudRepeatingAlarm = (
+  messageEn: string,
+  soundType: 'new_trip' | 'alert' | 'trip_accepted' | 'rating' = 'new_trip',
+  arabicMessage?: string
+) => {
+  const voiceMsg = arabicMessage || messageEn;
+  const displayTitle = arabicMessage ? '🚖 طلب مشوار جديد!' : '🚖 New Ride Request!';
+  notifyRideRequest(displayTitle, voiceMsg, arabicMessage ? 'ar-EG' : 'en-US');
+};

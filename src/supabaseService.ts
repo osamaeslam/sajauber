@@ -1760,6 +1760,94 @@ export const saveActiveTrip = async (trip: Trip | null, clearTripId?: string): P
   }
 };
 
+/**
+ * Atomic Trip Acceptance with Race Condition Lock.
+ * Guarantees that if multiple drivers press Accept simultaneously:
+ * - Only the first driver to atomically update the row wins.
+ * - Any subsequent driver gets an immediate rejection status with zero hang/freeze.
+ */
+export interface AtomicAcceptResult {
+  success: boolean;
+  reason?: 'ALREADY_TAKEN' | 'CANCELLED' | 'ERROR';
+  acceptedTrip?: Trip | null;
+  winnerDriverName?: string;
+}
+
+export const atomicAcceptTrip = async (
+  tripId: string,
+  driverId: string,
+  driverName: string
+): Promise<AtomicAcceptResult> => {
+  try {
+    // Atomic update WHERE id = tripId AND status = 'SEARCHING'
+    const { data: updatedRows, error: updateError } = await supabase
+      .from('ezz_active_trip')
+      .update({
+        status: 'ACCEPTED',
+        driver_id: driverId,
+        driver_name: driverName,
+      })
+      .eq('id', tripId)
+      .eq('status', 'SEARCHING')
+      .select('*');
+
+    if (updateError) {
+      console.warn('[atomicAcceptTrip] Database error during atomic accept:', updateError.message);
+      // Fallback: check if we were actually set as driver
+      const { data: checkTrip } = await supabase
+        .from('ezz_active_trip')
+        .select('*')
+        .eq('id', tripId)
+        .maybeSingle();
+
+      if (checkTrip && checkTrip.status === 'ACCEPTED' && checkTrip.driver_id === driverId) {
+        return { success: true, acceptedTrip: mapTripFromDB(checkTrip) };
+      }
+      return { success: false, reason: 'ERROR' };
+    }
+
+    // Success: Exactly 1 row updated for this driver
+    if (updatedRows && updatedRows.length > 0 && updatedRows[0].driver_id === driverId) {
+      console.log('[atomicAcceptTrip] Race condition WON by driver:', driverId, 'for trip:', tripId);
+      return { success: true, acceptedTrip: mapTripFromDB(updatedRows[0]) };
+    }
+
+    // 0 rows updated: Race condition LOST (another driver accepted or rider cancelled)
+    console.log('[atomicAcceptTrip] Race condition: Another driver won or status is no longer SEARCHING for trip:', tripId);
+    const { data: currentTrip } = await supabase
+      .from('ezz_active_trip')
+      .select('*')
+      .eq('id', tripId)
+      .maybeSingle();
+
+    if (!currentTrip) {
+      return { success: false, reason: 'CANCELLED' };
+    }
+
+    const mapped = mapTripFromDB(currentTrip);
+    if (mapped.status === 'ACCEPTED') {
+      if (mapped.driverId === driverId) {
+        return { success: true, acceptedTrip: mapped };
+      }
+      return {
+        success: false,
+        reason: 'ALREADY_TAKEN',
+        winnerDriverName: mapped.driverName || 'كابتن آخر',
+        acceptedTrip: mapped,
+      };
+    }
+
+    return {
+      success: false,
+      reason: mapped.status === 'CANCELLED' ? 'CANCELLED' : 'ALREADY_TAKEN',
+      acceptedTrip: mapped,
+    };
+  } catch (err: any) {
+    console.warn('[atomicAcceptTrip] Unexpected exception:', err?.message || err);
+    return { success: false, reason: 'ERROR' };
+  }
+};
+
 // Subscribe to active trip changes in realtime (used by driver and rider to sync trips and direct chat instantly)
 export const subscribeToActiveTrips = (
   onTrip: (trip: Trip | null) => void,

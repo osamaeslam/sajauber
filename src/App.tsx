@@ -48,7 +48,8 @@
     uploadDriverImage,
     uploadDriverImageFromBase64,
     mapDriverFromDB,
-    mapTripFromDB
+    mapTripFromDB,
+    atomicAcceptTrip
   } from './supabaseService';
   import {
     requestNotificationPermission,
@@ -58,11 +59,15 @@
     stopTitleFlash,
     speakText,
     stopLoudRepeatingAlarm,
+    stopContinuousRingtone,
+    playContinuousRingtone,
     triggerVibration,
     notifyDriverWithAudioFirst,
     notifyRideRequest,
     unlockAudioContext,
     isNotificationRateLimited,
+    requestScreenWakeLock,
+    releaseScreenWakeLock,
   } from './utils/notifications';
   import { getFCMToken, onFCMForegroundMessage } from './firebase';
   import {
@@ -637,7 +642,7 @@
     const [drvFormName, setDrvFormName] = useState('');
     const [drvFormPhone, setDrvFormPhone] = useState('');
     const [drvFormPassword, setDrvFormPassword] = useState('');
-    const [drvFormVehicleType, setDrvFormVehicleType] = useState<'CAR' | 'MOTORCYCLE' | 'TOKTOK' | 'TRICYCLE'>('CAR');
+    const [drvFormVehicleType, setDrvFormVehicleType] = useState<'CAR' | 'MOTORCYCLE' | 'TOKTOK'>('CAR');
     const [drvFormVehicleName, setDrvFormVehicleName] = useState('');
     const [drvFormVehicleBrand, setDrvFormVehicleBrand] = useState('');
     const [drvFormVehicleLicense, setDrvFormVehicleLicense] = useState('');
@@ -1681,18 +1686,25 @@
       }
     }, [activeTrip, driverIsLoggedIn, lang]);
 
-    // 1.5. Loud Alarm Handler Loop for Driver Ride Requests
+    // 1.5. Loud Persistent Ringtone Alarm Handler for Driver Ride Requests
     useEffect(() => {
       if (!driverIsLoggedIn || !selectedDriverId) {
-        stopLoudRepeatingAlarm();
+        stopContinuousRingtone();
         return;
       }
       const hasTrip = activeTrip && activeTrip.status === 'SEARCHING';
-      const isCurrentOffered = activeTrip?.currentOfferedDriverId === selectedDriverId;
-      
+      const isCurrentOffered =
+        hasTrip &&
+        (activeTrip.currentOfferedDriverId === selectedDriverId ||
+          (activeTrip.offeredDriverIds && activeTrip.offeredDriverIds.includes(selectedDriverId)) ||
+          activeTrip.driverId === selectedDriverId);
+
       if (hasTrip && isCurrentOffered) {
         const rateKey = `ride_request_${activeTrip.id}`;
-        if (lastNotifiedTripIdRef.current !== activeTrip.id || lastNotifiedOfferedDriverIdRef.current !== activeTrip.currentOfferedDriverId) {
+        if (
+          lastNotifiedTripIdRef.current !== activeTrip.id ||
+          lastNotifiedOfferedDriverIdRef.current !== activeTrip.currentOfferedDriverId
+        ) {
           lastNotifiedTripIdRef.current = activeTrip.id;
           lastNotifiedOfferedDriverIdRef.current = activeTrip.currentOfferedDriverId || null;
           if (!isNotificationRateLimited(rateKey)) {
@@ -1715,13 +1727,13 @@
       } else {
         lastNotifiedTripIdRef.current = null;
         lastNotifiedOfferedDriverIdRef.current = null;
-        stopLoudRepeatingAlarm();
+        stopContinuousRingtone();
       }
 
       return () => {
-        stopLoudRepeatingAlarm();
+        stopContinuousRingtone();
       };
-    }, [activeTrip?.id, activeTrip?.status, activeTrip?.currentOfferedDriverId, driverIsLoggedIn, selectedDriverId, lang]);
+    }, [activeTrip?.id, activeTrip?.status, activeTrip?.currentOfferedDriverId, activeTrip?.offeredDriverIds, driverIsLoggedIn, selectedDriverId, lang]);
 
     // Service Worker message listener (registration handled by vite-plugin-pwa)
     useEffect(() => {
@@ -2079,11 +2091,13 @@
     };
 
     const handleRequestRide = async (
-      requestedVehicleType: 'CAR' | 'MOTORCYCLE' | 'TOKTOK' | 'TRICYCLE' = 'CAR',
+      requestedVehicleType: 'CAR' | 'MOTORCYCLE' | 'TOKTOK' = 'CAR',
       pickupLandmark?: string,
       promoCode?: string,
       promoCodeId?: string,
-      promoDiscount?: number
+      promoDiscount?: number,
+      isRoundTrip: boolean = false,
+      waitingMinutes: number = 0
     ) => {
       if (requestInProgressRef.current) return;
       if (!rider.isLoggedIn) return;
@@ -2141,6 +2155,17 @@
           distance = Math.max(1, parseFloat(fallbackDistance.toFixed(2)));
         }
 
+        if (distance > 50 && (requestedVehicleType === 'MOTORCYCLE' || requestedVehicleType === 'TOKTOK')) {
+          triggerToast(
+            lang === 'ar' ? 'المسافة تتجاوز 50 كم (مشوار سفر)' : 'Distance exceeds 50km',
+            lang === 'ar'
+              ? `المسافة الحالية (${distance} كم) تتجاوز 50 كم. الموتوسيكل والتوكتوك مخصصان للمسافات حتى 50 كم فقط. يرجى اختيار سيارة لراحتك وسلامتك.`
+              : `Current distance (${distance} km) exceeds 50 km. Motorcycles and TukTuks are limited to 50 km trips. Please select a Car for safety and comfort.`,
+            'warning'
+          );
+          return;
+        }
+
         let appliedDiscount = 0;
         let appliedPromoCode: string | undefined;
         let appliedPromoDiscount: number | undefined;
@@ -2155,7 +2180,15 @@
           appliedPromoDiscount = appliedDiscount;
         }
 
-        const { baseFare, commission, finalFare } = calculateFullTripFare(distance, requestedVehicleType, stats, appliedDiscount, selectedRegionObj?.pricing);
+        const { baseFare, commission, finalFare, waitingFee, totalDistance } = calculateFullTripFare(
+          distance,
+          requestedVehicleType,
+          stats,
+          appliedDiscount,
+          selectedRegionObj?.pricing,
+          isRoundTrip,
+          waitingMinutes
+        );
         const fare = finalFare;
 
         // Broadcast dispatch to up to 5 available drivers in the region simultaneously.
@@ -2234,6 +2267,11 @@
             appliedPromoDiscount,
             pickupRegionId: selectedRegion?.id,
             pickupRegionName: selectedRegion?.nameAr,
+            isRoundTrip,
+            waitingMinutes: isRoundTrip ? waitingMinutes : 0,
+            roundTripWaitingFee: waitingFee,
+            oneWayDistance: distance,
+            distance: totalDistance,
           };
 
           setActiveTripWithTracking(newTrip);
@@ -2526,6 +2564,8 @@
 
     // Handler: Driver Accepts Trip Manually
     const handleAcceptTrip = async (driverId: string) => {
+      stopContinuousRingtone();
+
       if (!activeTrip || activeTrip.status !== 'SEARCHING') return;
 
       const drv = drivers.find((d) => d.id === driverId);
@@ -2539,118 +2579,78 @@
         return;
       }
 
-      // Optimistic local update first (marks driver BUSY, sets ACCEPTED)
-      setDrivers((prev) =>
-        prev.map((d) => (d.id === driverId ? { ...d, status: 'BUSY' } : d))
-      );
-
-      const acceptedTrip: Trip = {
-        ...activeTrip,
-        status: 'ACCEPTED',
-        driverId,
-        driverName: drv?.name,
-      };
-
-      setActiveTripWithTracking(acceptedTrip);
-
       if (supabaseConnected) {
+        // Atomic update with race condition lock
+        const result = await atomicAcceptTrip(activeTrip.id, driverId, drv?.name || 'كابتن');
+
+        if (!result.success) {
+          console.log('[handleAcceptTrip] Race condition lost:', result.reason);
+          triggerToast(
+            lang === 'ar' ? 'عفواً، تم قبول الطلب' : 'Trip already taken',
+            lang === 'ar'
+              ? 'قام كابتن آخر بقبول هذا المشوار قبلك أو تم إلغاء الطلب.'
+              : 'Another driver accepted this ride or it was cancelled.',
+            'warning'
+          );
+
+          // Instantly return driver to available without freezing
+          setActiveTripWithTracking(null);
+          setDrivers((prev) =>
+            prev.map((d) => (d.id === driverId ? { ...d, status: 'AVAILABLE' } : d))
+          );
+          if (drv) {
+            saveDriver({ ...drv, status: 'AVAILABLE' }).catch(() => {});
+          }
+          return;
+        }
+
+        // Driver won the race
+        const acceptedTrip: Trip = result.acceptedTrip || {
+          ...activeTrip,
+          status: 'ACCEPTED',
+          driverId,
+          driverName: drv?.name,
+        };
+
+        setDrivers((prev) =>
+          prev.map((d) => (d.id === driverId ? { ...d, status: 'BUSY' } : d))
+        );
         if (drv) {
           saveDriver({ ...drv, status: 'BUSY' }).catch(() => {});
         }
+        setActiveTripWithTracking(acceptedTrip);
 
-        // Atomic update: only transition from SEARCHING to ACCEPTED
-        const { data: updated, error: updateError } = await supabase
-          .from('ezz_active_trip')
-          .update({
-            status: 'ACCEPTED',
-            driver_id: driverId,
-            driver_name: drv?.name || null,
-          })
-          .eq('id', activeTrip.id)
-          .eq('status', 'SEARCHING')
-          .select('id, status, driver_id');
+        try {
+          const driverLat = drv?.lat ?? (drv ? getCoordsFromXY(drv.currentX, drv.currentY).lat : undefined);
+          const driverLng = drv?.lng ?? (drv ? getCoordsFromXY(drv.currentX, drv.currentY).lng : undefined);
 
-        const successfulAccept = Boolean(
-          !updateError &&
-          updated &&
-          updated.length > 0 &&
-          updated[0].status === 'ACCEPTED' &&
-          updated[0].driver_id === driverId
-        );
-
-        if (!successfulAccept) {
-          // Check current DB status to verify if another driver accepted or trip cancelled
-          const { data: currentTrip } = await supabase
-            .from('ezz_active_trip')
-            .select('status, driver_id')
-            .eq('id', activeTrip.id)
-            .maybeSingle();
-
-          if (currentTrip?.status === 'ACCEPTED' && currentTrip?.driver_id === driverId) {
-            console.log('[handleAcceptTrip] Confirmed: already accepted by this driver');
-          } else {
-            console.log('[handleAcceptTrip] Race condition: Another driver took the trip or trip cancelled, rolling back');
-            triggerToast(
-              lang === 'ar' ? 'عفواً، تم قبول الطلب' : 'Trip already taken',
-              lang === 'ar' ? 'قام كابتن آخر بقبول هذا المشوار قبلك أو تم إلغاء الطلب.' : 'Another driver accepted this ride or it was cancelled.',
-              'warning'
-            );
-            setActiveTripWithTracking((prev: Trip | null) => {
-              if (!prev || prev.id === activeTrip.id) return null;
-              return prev;
-            });
-            setDrivers((prev) =>
-              prev.map((d) => (d.id === driverId ? { ...d, status: 'AVAILABLE' } : d))
-            );
-            if (drv) {
-              saveDriver({ ...drv, status: 'AVAILABLE' }).catch(() => {});
+          if (driverLat !== undefined && driverLng !== undefined) {
+            const route = await getNavigationRoute(driverLat, driverLng, activeTrip.pickup, activeTrip.dropoff);
+            if (route) {
+              const routeUpdated: Trip = {
+                ...acceptedTrip,
+                routeGeometry: route.geometry,
+                etaMinutes: route.durationSeconds ? Math.ceil(route.durationSeconds / 60) : acceptedTrip.etaMinutes,
+              };
+              setActiveTripWithTracking(routeUpdated);
+              await saveActiveTrip(routeUpdated);
             }
-            return;
           }
+        } catch (err) {
+          console.warn('[handleAcceptTrip] route calculation error (non-fatal):', err);
         }
-      }
-
-      try {
-        const driverLat = drv?.lat ?? (drv ? getCoordsFromXY(drv.currentX, drv.currentY).lat : undefined);
-        const driverLng = drv?.lng ?? (drv ? getCoordsFromXY(drv.currentX, drv.currentY).lng : undefined);
-
-        if (driverLat === undefined || driverLng === undefined) {
-          throw new Error('Driver coordinates unavailable');
-        }
-
-        const route = await getNavigationRoute(driverLat, driverLng, activeTrip.pickup, activeTrip.dropoff);
-        if (!route) {
-          throw new Error('No route found');
-        }
-
-        const routeUpdated: Trip = {
-          ...acceptedTrip,
-          routeGeometry: route.geometry,
-          etaMinutes: route.durationSeconds ? Math.ceil(route.durationSeconds / 60) : acceptedTrip.etaMinutes,
-        };
-        setActiveTripWithTracking(routeUpdated);
-        if (supabaseConnected) {
-          await saveActiveTrip(routeUpdated);
-        }
-      } catch (err) {
-        console.warn('[handleAcceptTrip] route calculation failed, rolling back:', err);
-        setActiveTripWithTracking((prev) => {
-          if (!prev || prev.status !== 'ACCEPTED') return prev;
-          return { ...prev, status: 'SEARCHING' as TripStatus, driverId: undefined, driverName: undefined, routeGeometry: undefined, etaMinutes: undefined };
-        });
+      } else {
+        // Offline optimistic accept
         setDrivers((prev) =>
-          prev.map((d) => (d.id === driverId ? { ...d, status: 'AVAILABLE' } : d))
+          prev.map((d) => (d.id === driverId ? { ...d, status: 'BUSY' } : d))
         );
-        if (supabaseConnected) {
-          saveActiveTrip({ ...acceptedTrip, status: 'SEARCHING', driverId: undefined, driverName: undefined, routeGeometry: undefined, etaMinutes: undefined }).catch(() => {});
-          saveDriver({ ...drv, status: 'AVAILABLE' }).catch(() => {});
-        }
-        triggerToast(
-          lang === 'ar' ? 'تنبيه' : 'Notice',
-          lang === 'ar' ? 'لم يتم العثور على مسار. تم إلغاء قبول الرحلة.' : 'No route found. Ride acceptance cancelled.',
-          'warning'
-        );
-        return;
+        const acceptedTrip: Trip = {
+          ...activeTrip,
+          status: 'ACCEPTED',
+          driverId,
+          driverName: drv?.name,
+        };
+        setActiveTripWithTracking(acceptedTrip);
       }
 
       if (drv) {
@@ -2682,6 +2682,7 @@
     };
 
     const handleRejectTrip = async () => {
+      stopContinuousRingtone();
       if (rejectTripInProgressRef.current) return;
       const currentTrip = activeTrip;
       if (!currentTrip || currentTrip.status !== 'SEARCHING' || !currentTrip.currentOfferedDriverId) return;
@@ -4465,7 +4466,6 @@
                                       <option value="CAR">🚖 سيارة</option>
                                       <option value="TOKTOK">🛺 توكتوك</option>
                                       <option value="MOTORCYCLE">🏍️ موتوسيكل</option>
-                                      <option value="TRICYCLE">🚲 تروسيكل</option>
                                     </select>
                                   </div>
                                 </div>

@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Driver, Trip, Location, SystemStats, Region } from '../types';
-import { ToggleRight, MapPin, Navigation, DollarSign, Wallet, Check, AlertTriangle, Users, MessageSquare, Bell, ShieldAlert, Loader2, ChevronRight, ChevronLeft, Plus, X, Volume2 } from 'lucide-react';
-import { play10SecondRingtone, speakText, triggerVibration, unlockAudioContext, stop10SecondRingtone } from '../utils/notifications';
+import { ToggleRight, MapPin, Navigation, DollarSign, Wallet, Check, AlertTriangle, Users, MessageSquare, Bell, ShieldAlert, Loader2, ChevronRight, ChevronLeft, Plus, X, Volume2, VolumeX, Smartphone } from 'lucide-react';
+import { playContinuousRingtone, stopContinuousRingtone, speakText, triggerVibration, unlockAudioContext, requestScreenWakeLock, releaseScreenWakeLock } from '../utils/notifications';
 
 interface DriverViewProps {
   drivers: Driver[];
@@ -97,9 +97,17 @@ export const DriverView: React.FC<DriverViewProps> = ({
   const [chatText, setChatText] = useState('');
 
    React.useEffect(() => {
-     // Location tracking disabled — drivers choose coverage areas manually.
-     if (!currentDriverId || !onUpdateDriverLocationRef.current) return;
-   }, [currentDriverId, activeTrip?.id, activeTrip?.driverId, lowDataMode]);
+     // Keep screen awake while driver is online waiting for ride requests
+     if (currentDriver?.isOnline) {
+       requestScreenWakeLock();
+     } else {
+       releaseScreenWakeLock();
+     }
+
+     return () => {
+       releaseScreenWakeLock();
+     };
+   }, [currentDriver?.isOnline]);
 
   // PWA Service Worker & Push Notification state
   const [swRegistered, setSwRegistered] = useState(false);
@@ -110,16 +118,13 @@ export const DriverView: React.FC<DriverViewProps> = ({
     try {
       unlockAudioContext();
       setSoundTesting(true);
-      play10SecondRingtone();
+      playContinuousRingtone({
+        title: lang === 'ar' ? '🚖 اختبار رنين الطلب الجديد' : '🚖 Ride Alarm Sound Test',
+        body: lang === 'ar' ? 'نغمة رنين متكررة كالمكالمة واهتزاز مستمر حتى الرد' : 'Repeating phone-call ringtone & continuous vibration test',
+        lang: lang === 'ar' ? 'ar-EG' : 'en-US',
+        speechText: lang === 'ar' ? 'تنبيه كابتن عز! يوجد طلب مشوار جديد في منطقتك، اضغط للموافقة' : 'Captain Ezz alert! New ride request received in your coverage area'
+      });
       triggerVibration([300, 150, 300, 150, 500]);
-      if (lang === 'ar') {
-        speakText('تنبيه كابتن عز! يوجد طلب مشوار جديد في منطقتك، اضغط للموافقة');
-      } else {
-        speakText('Captain Ezz alert! New ride request received in your coverage area');
-      }
-      setTimeout(() => {
-        setSoundTesting(false);
-      }, 7000);
     } catch (err) {
       console.warn('Sound test error:', err);
       setSoundTesting(false);
@@ -127,7 +132,7 @@ export const DriverView: React.FC<DriverViewProps> = ({
   };
 
   const handleStopSoundTest = () => {
-    stop10SecondRingtone();
+    stopContinuousRingtone();
     setSoundTesting(false);
   };
 
@@ -366,7 +371,6 @@ export const DriverView: React.FC<DriverViewProps> = ({
               {currentDriver.vehicleType === 'CAR' && '🚖'}
               {currentDriver.vehicleType === 'MOTORCYCLE' && '🏍️'}
               {currentDriver.vehicleType === 'TOKTOK' && '🛺'}
-              {currentDriver.vehicleType === 'TRICYCLE' && '🚲'}
             </div>
             <div className="min-w-0">
               <div className="flex items-center gap-1.5">
@@ -562,13 +566,27 @@ export const DriverView: React.FC<DriverViewProps> = ({
             </div>
 
             <div className="flex items-center justify-between">
-              <span className="px-2.5 py-1 bg-emerald-500 text-white text-[9px] font-black rounded-full uppercase tracking-wider flex items-center gap-1">
-                <span>⚡</span>
-                <span>{lang === 'ar' ? 'طلب رحلة جديد!' : 'New Ride Request!'}</span>
+              <span className="px-2.5 py-1 bg-emerald-600 text-white text-[9px] font-black rounded-full uppercase tracking-wider flex items-center gap-1.5 shadow-sm animate-bounce">
+                <span className="w-2 h-2 rounded-full bg-white animate-ping"></span>
+                <span>📞 {lang === 'ar' ? 'طلب مشوار جديد وارد الآن!' : 'Incoming Ride Call!'}</span>
               </span>
-              <span className="text-sm font-black text-slate-800">
-                {activeTrip.fare} {lang === 'ar' ? 'ج.م' : 'EGP'}
-              </span>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    stopContinuousRingtone();
+                  }}
+                  className="px-2 py-0.5 bg-white/90 hover:bg-white text-slate-700 border border-emerald-300 rounded-lg text-[9px] font-bold flex items-center gap-1 cursor-pointer transition-colors shadow-xs"
+                  title={lang === 'ar' ? 'كتم صوت الرنين' : 'Silence Ringtone'}
+                >
+                  <VolumeX className="w-3 h-3 text-rose-500" />
+                  <span>{lang === 'ar' ? 'كتم الرنين' : 'Mute'}</span>
+                </button>
+                <span className="text-sm font-black text-slate-800">
+                  {activeTrip.fare} {lang === 'ar' ? 'ج.م' : 'EGP'}
+                </span>
+              </div>
             </div>
 
             {/* Driver identity block */}
@@ -577,7 +595,6 @@ export const DriverView: React.FC<DriverViewProps> = ({
                 {currentDriver.vehicleType === 'CAR' && '🚖'}
                 {currentDriver.vehicleType === 'MOTORCYCLE' && '🏍️'}
                 {currentDriver.vehicleType === 'TOKTOK' && '🛺'}
-                {currentDriver.vehicleType === 'TRICYCLE' && '🚲'}
               </div>
               <div className="text-right flex-1 min-w-0">
                 <p className="text-[10px] text-slate-400">{lang === 'ar' ? 'السائق الحالي' : 'Current Driver'}</p>

@@ -1,10 +1,11 @@
 import React, { useState, useEffect, lazy, Suspense, Dispatch, SetStateAction } from 'react';
 import { Location, Driver, Trip, Rider, Region, Ad } from '../types';
-import { MapPin, ArrowRightLeft, Navigation, Phone, Star, DollarSign, Loader2, Sparkles, AlertCircle, Car, HelpCircle, MessageSquare, Search, Check, X, ThumbsUp, ThumbsDown } from 'lucide-react';
+import { MapPin, ArrowRightLeft, Navigation, Phone, Star, DollarSign, Loader2, Sparkles, AlertCircle, Car, HelpCircle, MessageSquare, Search, Check, X, ThumbsUp, ThumbsDown, Share2, ShieldCheck, Clock, RotateCw } from 'lucide-react';
 import { calculateHaversineDistance, estimateDrivingDistance, calculateDynamicFare, getVehiclePricing, calculateVehicleFare, calculateFullTripFare } from '../utils/haversine';
 import { saveRiderPreferences, validatePromoCode } from '../supabaseService';
 import { RiderPreferences } from '../types';
 import { AdBanner } from './AdBanner';
+import { shareTripForSafety, smartCache } from '../utils/tripShare';
 
 // Lazy-load the heavy map components so the rider page opens instantly on
 // weak networks. The map bundle is only fetched when the user taps "Show map".
@@ -25,7 +26,15 @@ interface RiderViewProps {
   setSelectedPickupRegion: (regionId: string) => void;
   setSelectedPickup: (id: string) => void;
   setSelectedDropoff: (id: string) => void;
-  onRequestRide: (requestedVehicleType: 'CAR' | 'MOTORCYCLE' | 'TOKTOK' | 'TRICYCLE', pickupLandmark?: string, promoCode?: string, promoCodeId?: string, promoDiscount?: number) => void;
+  onRequestRide: (
+    requestedVehicleType: 'CAR' | 'MOTORCYCLE' | 'TOKTOK',
+    pickupLandmark?: string,
+    promoCode?: string,
+    promoCodeId?: string,
+    promoDiscount?: number,
+    isRoundTrip?: boolean,
+    waitingMinutes?: number
+  ) => void;
   onCancelRide: () => void;
   onTripCompleted: () => void;
   onConfirmArrival?: () => void;
@@ -70,7 +79,10 @@ export const RiderView: React.FC<RiderViewProps> = ({
   noAvailableDrivers = false,
   onOpenGuide,
 }) => {
-  const [requestedVehicleType, setRequestedVehicleType] = useState<'CAR' | 'MOTORCYCLE' | 'TOKTOK' | 'TRICYCLE'>('CAR');
+  const [requestedVehicleType, setRequestedVehicleType] = useState<'CAR' | 'MOTORCYCLE' | 'TOKTOK'>('CAR');
+  const [isRoundTrip, setIsRoundTrip] = useState<boolean>(false);
+  const [waitingMinutes, setWaitingMinutes] = useState<number>(0);
+  const [shareToast, setShareToast] = useState<string | null>(null);
   
   const [showMathExplanation, setShowMathExplanation] = useState(false);
   const [chatText, setChatText] = useState('');
@@ -131,7 +143,7 @@ export const RiderView: React.FC<RiderViewProps> = ({
 
   const [showConfirmModal, setShowConfirmModal] = useState(false);
   const [confirmStep, setConfirmStep] = useState<'VEHICLE' | 'PRICE' | 'SENDING'>('VEHICLE');
-  const [confirmVehicleType, setConfirmVehicleType] = useState<'CAR' | 'MOTORCYCLE' | 'TOKTOK' | 'TRICYCLE'>('CAR');
+  const [confirmVehicleType, setConfirmVehicleType] = useState<'CAR' | 'MOTORCYCLE' | 'TOKTOK'>('CAR');
   const [confirmPickupLandmark, setConfirmPickupLandmark] = useState('');
 
   const [showFavModal, setShowFavModal] = useState<'pickup' | 'dropoff' | null>(null);
@@ -461,8 +473,14 @@ export const RiderView: React.FC<RiderViewProps> = ({
 
   const discountAmount = appliedPromo?.discount ?? 0;
 
-  const computeTripFare = (dist: number, vehicleType: string, discount: number = 0) => {
-    return calculateFullTripFare(dist, vehicleType, stats, discount, selectedRegion?.pricing).finalFare;
+  const computeTripFare = (
+    dist: number,
+    vehicleType: string,
+    discount: number = 0,
+    isRound: boolean = isRoundTrip,
+    waitMin: number = waitingMinutes
+  ) => {
+    return calculateFullTripFare(dist, vehicleType, stats, discount, selectedRegion?.pricing, isRound, waitMin).finalFare;
   };
 
   const calculateFareForLocation = (dropoff: { lat: number; lng: number }): number => {
@@ -470,8 +488,12 @@ export const RiderView: React.FC<RiderViewProps> = ({
     const direct = calculateHaversineDistance(pickupLoc.lat, pickupLoc.lng, dropoff.lat, dropoff.lng);
     const dist = estimateDrivingDistance(direct, distanceBuffer) + additionalKm;
     const finalDist = parseFloat(Math.max(1, dist).toFixed(2));
-    return computeTripFare(finalDist, 'CAR', 0);
+    return computeTripFare(finalDist, 'CAR', 0, false, 0);
   };
+
+  let oneWayDistance = 0;
+  let totalTraveledDistance = 0;
+  let waitingFee = 0;
 
   if (pickupLoc && dropoffLoc) {
     if (realDistance) {
@@ -482,10 +504,55 @@ export const RiderView: React.FC<RiderViewProps> = ({
       distance = parseFloat(distance.toFixed(2));
       if (distance < 1) distance = 1;
     }
-    originalFare = computeTripFare(distance, requestedVehicleType, 0);
-    estimatedFare = computeTripFare(distance, requestedVehicleType, discountAmount);
+    oneWayDistance = distance;
+    totalTraveledDistance = isRoundTrip ? parseFloat((distance * 2).toFixed(2)) : distance;
+
+    const fareCalc = calculateFullTripFare(
+      distance,
+      requestedVehicleType,
+      stats,
+      discountAmount,
+      selectedRegion?.pricing,
+      isRoundTrip,
+      waitingMinutes
+    );
+    originalFare = calculateFullTripFare(
+      distance,
+      requestedVehicleType,
+      stats,
+      0,
+      selectedRegion?.pricing,
+      isRoundTrip,
+      waitingMinutes
+    ).finalFare;
+    estimatedFare = fareCalc.finalFare;
+    waitingFee = fareCalc.waitingFee;
     commissionRate = incomingCommission;
   }
+
+  const handleShareSafety = async (targetTrip?: Trip | null) => {
+    const res = await shareTripForSafety({
+      trip: targetTrip || activeTrip,
+      riderName: rider.name,
+      riderPhone: rider.phone,
+      driver: targetTrip?.driverId ? drivers.find(d => d.id === targetTrip.driverId) : (activeTrip?.driverId ? drivers.find(d => d.id === activeTrip.driverId) : null),
+      pickupLoc,
+      dropoffLoc,
+      distance: totalTraveledDistance || distance,
+      fare: estimatedFare,
+      isRoundTrip,
+      waitingMinutes,
+      lang,
+    });
+    if (res.success) {
+      if (res.method === 'clipboard') {
+        setShareToast(lang === 'ar' ? '✅ تم نسخ تفاصيل الرحلة للحافظة بنجاح! يمكنك لصقها في واتساب.' : '✅ Trip details copied to clipboard!');
+      } else {
+        setShareToast(lang === 'ar' ? '🛡️ تم فتح مشاركة تفاصيل الأمان بنجاح' : '🛡️ Safety share opened successfully');
+      }
+      setTimeout(() => setShareToast(null), 4000);
+    }
+  };
 
   const onlineDrivers = drivers.filter((d) => {
     if (!d.isOnline || d.approvalStatus !== 'APPROVED') return false;
@@ -505,6 +572,16 @@ export const RiderView: React.FC<RiderViewProps> = ({
     return true;
   });
   const availableDrivers = onlineDrivers.filter((d) => d.status === 'AVAILABLE' && String(d.vehicleType).toUpperCase() === requestedVehicleType);
+
+  // Auto-switch to CAR if distance exceeds 50km
+  useEffect(() => {
+    if (distance > 50 && (requestedVehicleType === 'MOTORCYCLE' || requestedVehicleType === 'TOKTOK')) {
+      setRequestedVehicleType('CAR');
+    }
+    if (distance > 50 && (confirmVehicleType === 'MOTORCYCLE' || confirmVehicleType === 'TOKTOK')) {
+      setConfirmVehicleType('CAR');
+    }
+  }, [distance, requestedVehicleType, confirmVehicleType]);
 
   const swapLocations = () => {
     const temp = selectedPickup;
@@ -598,7 +675,21 @@ export const RiderView: React.FC<RiderViewProps> = ({
   };
 
    return (
-    <div className="flex flex-col h-full bg-white text-slate-900 select-none">
+    <div className="flex flex-col h-full bg-white text-slate-900 select-none relative">
+      {/* Toast Banner for Safety Share & Notifications */}
+      {shareToast && (
+        <div className="absolute top-2 left-3 right-3 z-50 bg-slate-900 text-white px-3.5 py-2.5 rounded-xl shadow-lg border border-slate-700 flex items-center justify-between text-xs font-bold animate-bounce text-right">
+          <span>{shareToast}</span>
+          <button
+            type="button"
+            onClick={() => setShareToast(null)}
+            className="text-slate-400 hover:text-white p-1"
+          >
+            <X className="w-3.5 h-3.5" />
+          </button>
+        </div>
+      )}
+
       {/* Wallet Display */}
       <div className="bg-slate-50 border-b border-slate-100 p-3.5 flex items-center justify-between rounded-t-2xl">
         <div className="flex items-center gap-2">
@@ -742,12 +833,20 @@ export const RiderView: React.FC<RiderViewProps> = ({
         {activeTrip && activeTrip.riderId === rider.id && activeTrip.status !== 'COMPLETED' && activeTrip.status !== 'CANCELLED' && (
           <div className="bg-slate-50 border border-slate-100 rounded-2xl p-4 space-y-4">
             <div className="flex items-center justify-between">
-              <span className="px-2.5 py-1 bg-blue-100 text-blue-700 text-[10px] font-bold rounded-full">
-                {activeTrip.status === 'SEARCHING' && (lang === 'ar' ? 'جاري البحث عن سائق...' : 'Searching for driver...')}
-                {activeTrip.status === 'ACCEPTED' && (lang === 'ar' ? 'السائق في الطريق' : 'Driver on the way')}
-                {activeTrip.status === 'ARRIVED' && (lang === 'ar' ? 'السائق وصل!' : 'Driver arrived!')}
-                {activeTrip.status === 'STARTED' && (lang === 'ar' ? 'في الرحلة حالياً' : 'Trip in progress')}
-              </span>
+              <div className="flex items-center gap-1.5 flex-wrap">
+                <span className="px-2.5 py-1 bg-blue-100 text-blue-700 text-[10px] font-bold rounded-full">
+                  {activeTrip.status === 'SEARCHING' && (lang === 'ar' ? 'جاري البحث عن سائق...' : 'Searching for driver...')}
+                  {activeTrip.status === 'ACCEPTED' && (lang === 'ar' ? 'السائق في الطريق' : 'Driver on the way')}
+                  {activeTrip.status === 'ARRIVED' && (lang === 'ar' ? 'السائق وصل!' : 'Driver arrived!')}
+                  {activeTrip.status === 'STARTED' && (lang === 'ar' ? 'في الرحلة حالياً' : 'Trip in progress')}
+                </span>
+                {activeTrip.isRoundTrip && (
+                  <span className="px-2 py-0.5 bg-amber-100 text-amber-900 border border-amber-300 text-[9px] font-black rounded-full flex items-center gap-1">
+                    <RotateCw className="w-2.5 h-2.5 text-amber-700" />
+                    <span>{lang === 'ar' ? `ذهاب وعودة (${activeTrip.waitingMinutes || 0} دقيقة انتظار)` : `Round-Trip (${activeTrip.waitingMinutes || 0}m wait)`}</span>
+                  </span>
+                )}
+              </div>
               <span className="text-xs font-bold text-slate-800">
                 {activeTrip.fare} {lang === 'ar' ? 'ج.م' : 'EGP'}
               </span>
@@ -922,7 +1021,16 @@ export const RiderView: React.FC<RiderViewProps> = ({
                     </span>
                   </p>
                 </div>
-                <div className="text-right">
+                <div className="flex items-center gap-1.5">
+                  <button
+                    type="button"
+                    onClick={() => handleShareSafety(activeTrip)}
+                    title={lang === 'ar' ? 'مشاركة تفاصيل الرحلة للأمان مع الأهل' : 'Share trip for safety'}
+                    className="inline-flex items-center gap-1 text-[10px] text-emerald-700 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 px-2.5 py-1 rounded-full font-bold transition-colors pointer-events-auto shadow-xs cursor-pointer"
+                  >
+                    <Share2 className="w-2.5 h-2.5 text-emerald-600" />
+                    <span>{lang === 'ar' ? 'مشاركة للأمان' : 'Share'}</span>
+                  </button>
                   <a
                     href={`tel:${drivers.find((d) => d.id === activeTrip.driverId)?.phone}`}
                     className="inline-flex items-center gap-1 text-[10px] text-blue-600 bg-blue-50 border border-blue-100 px-2.5 py-1 rounded-full hover:bg-blue-100 font-bold transition-colors pointer-events-auto shadow-xs"
@@ -1415,16 +1523,23 @@ export const RiderView: React.FC<RiderViewProps> = ({
             {/* Vehicle Type Picker Grid */}
             {pickupLoc && dropoffLoc && (
               <div className="space-y-1.5" dir="rtl">
-                <label className="text-[10px] font-extrabold text-slate-500 block text-right">
-                  {lang === 'ar' ? 'اختر نوع المركبة المطلوبة:' : 'Select Vehicle Type:'}
-                </label>
-                <div className="grid grid-cols-4 gap-1.5">
+                <div className="flex items-center justify-between">
+                  <label className="text-[10px] font-extrabold text-slate-500 block text-right">
+                    {lang === 'ar' ? 'اختر نوع المركبة المطلوبة:' : 'Select Vehicle Type:'}
+                  </label>
+                  {distance > 50 && (
+                    <span className="text-[8.5px] font-black text-amber-700 bg-amber-100 px-2 py-0.5 rounded-md">
+                      {lang === 'ar' ? '⚠️ المسافة > 50 كم: سيارات فقط' : '⚠️ Distance > 50km: Cars only'}
+                    </span>
+                  )}
+                </div>
+                <div className="grid grid-cols-3 gap-2">
                   {[
-                    { id: 'CAR', icon: '🚖', labelAr: 'سيارة', labelEn: 'Car', baseMod: 1.0, kmMod: 1.0 },
-                    { id: 'TOKTOK', icon: '🛺', labelAr: 'توكتوك', labelEn: 'TukTuk', baseMod: 0.5, kmMod: 0.6 },
-                    { id: 'MOTORCYCLE', icon: '🏍️', labelAr: 'موتوسيكل', labelEn: 'Motorcycle', baseMod: 0.6, kmMod: 0.5 },
-                    { id: 'TRICYCLE', icon: '🚲', labelAr: 'تروسيكل', labelEn: 'Tricycle', baseMod: 0.7, kmMod: 0.7 },
+                    { id: 'CAR', icon: '🚖', labelAr: 'سيارة', labelEn: 'Car', baseMod: 1.0, kmMod: 1.0, maxKm: null },
+                    { id: 'TOKTOK', icon: '🛺', labelAr: 'توكتوك', labelEn: 'TukTuk', baseMod: 0.5, kmMod: 0.6, maxKm: 50 },
+                    { id: 'MOTORCYCLE', icon: '🏍️', labelAr: 'موتوسيكل', labelEn: 'Motorcycle', baseMod: 0.6, kmMod: 0.5, maxKm: 50 },
                   ].map((v) => {
+                    const isRestricted = v.maxKm !== null && distance > v.maxKm;
                     const vFare = computeTripFare(distance, v.id, discountAmount);
                     const isSelected = requestedVehicleType === v.id;
                     const countAvailable = onlineDrivers.filter((d) => d.status === 'AVAILABLE' && String(d.vehicleType).toUpperCase() === v.id).length;
@@ -1433,20 +1548,43 @@ export const RiderView: React.FC<RiderViewProps> = ({
                       <button
                         key={v.id}
                         type="button"
-                        onClick={() => setRequestedVehicleType(v.id as any)}
-                        className={`p-1.5 rounded-xl border flex flex-col items-center justify-between text-center transition-all cursor-pointer pointer-events-auto ${
-                          isSelected
-                            ? 'bg-slate-900 border-slate-950 text-white shadow-md scale-[1.03]'
-                            : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-50'
+                        disabled={isRestricted}
+                        onClick={() => {
+                          if (isRestricted) {
+                            alert(lang === 'ar'
+                              ? `عفواً، لا يمكن طلب ${v.labelAr} للمسافات التي تتجاوز ${v.maxKm} كم لأنها مسافة سفر شاقة. يرجى اختيار سيارة لراحتك وسلامتك.`
+                              : `Sorry, ${v.labelEn} is only available for trips up to ${v.maxKm} km. Please select a Car for long trips.`);
+                            return;
+                          }
+                          setRequestedVehicleType(v.id as any);
+                        }}
+                        className={`p-2 rounded-xl border flex flex-col items-center justify-between text-center transition-all pointer-events-auto ${
+                          isRestricted
+                            ? 'bg-slate-100/80 border-slate-200 text-slate-400 opacity-60 cursor-not-allowed'
+                            : isSelected
+                            ? 'bg-slate-900 border-slate-950 text-white shadow-md scale-[1.03] cursor-pointer'
+                            : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-50 cursor-pointer'
                         }`}
                       >
-                        <span className="text-base">{v.icon}</span>
-                        <span className="text-[8px] font-black mt-1">{lang === 'ar' ? v.labelAr : v.labelEn}</span>
-                        <span className={`text-[8.5px] font-black mt-0.5 ${isSelected ? 'text-amber-300' : 'text-blue-600'}`}>
-                          {vFare} ج.م
-                        </span>
-                        <span className={`text-[7px] mt-0.5 px-1.5 py-0.2 rounded-full font-extrabold ${countAvailable > 0 ? 'bg-emerald-100 text-emerald-800' : 'bg-slate-100 text-slate-400'}`}>
-                          {countAvailable > 0 ? `${countAvailable} متاح` : 'مغلق'}
+                        <span className="text-xl">{v.icon}</span>
+                        <span className="text-[9px] font-black mt-1">{lang === 'ar' ? v.labelAr : v.labelEn}</span>
+                        {isRestricted ? (
+                          <span className="text-[7.5px] font-black text-rose-600 bg-rose-50 px-1 py-0.2 rounded mt-0.5">
+                            {lang === 'ar' ? 'أقصى حد 50 كم' : 'Max 50km'}
+                          </span>
+                        ) : (
+                          <span className={`text-[9px] font-black mt-0.5 ${isSelected ? 'text-amber-300' : 'text-blue-600'}`}>
+                            {vFare} ج.م
+                          </span>
+                        )}
+                        <span className={`text-[7.5px] mt-0.5 px-1.5 py-0.2 rounded-full font-extrabold ${
+                          isRestricted
+                            ? 'bg-slate-200 text-slate-500'
+                            : countAvailable > 0
+                            ? 'bg-emerald-100 text-emerald-800'
+                            : 'bg-slate-100 text-slate-400'
+                        }`}>
+                          {isRestricted ? (lang === 'ar' ? 'مسافة سفر' : 'Long distance') : countAvailable > 0 ? `${countAvailable} متاح` : 'مغلق'}
                         </span>
                       </button>
                     );
@@ -1458,13 +1596,92 @@ export const RiderView: React.FC<RiderViewProps> = ({
             {/* Estimation and Driver State Indicator */}
             {pickupLoc && dropoffLoc ? (
               <div className="bg-amber-400/10 border-2 border-amber-400 rounded-2xl p-4 space-y-3.5 shadow-md animate-fade-in text-right">
+                
+                {/* 🔄 Round Trip & Waiting Option */}
+                <div className="bg-white/80 border border-amber-300 rounded-xl p-3 space-y-2.5 shadow-xs">
+                  <div className="flex items-center justify-between">
+                    <label className="relative inline-flex items-center cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={isRoundTrip}
+                        onChange={(e) => {
+                          const checked = e.target.checked;
+                          setIsRoundTrip(checked);
+                          if (!checked) setWaitingMinutes(0);
+                        }}
+                        className="sr-only peer"
+                      />
+                      <div className="w-9 h-5 bg-slate-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-amber-500"></div>
+                    </label>
+                    <div className="flex items-center gap-1.5">
+                      <RotateCw className={`w-4 h-4 ${isRoundTrip ? 'text-amber-600 animate-spin-slow' : 'text-slate-400'}`} />
+                      <span className="text-xs font-black text-slate-800">
+                        {lang === 'ar' ? 'مشوار ذهاب وعودة مع الكابتن' : 'Round-Trip Ride'}
+                      </span>
+                    </div>
+                  </div>
+
+                  {isRoundTrip && (
+                    <div className="pt-2 border-t border-amber-200/60 space-y-2 animate-fade-in">
+                      <div className="flex items-center justify-between text-[10px]">
+                        <span className="font-extrabold text-amber-900 flex items-center gap-1">
+                          <Clock className="w-3 h-3 text-amber-600" />
+                          {lang === 'ar' ? 'اختر مدة انتظار الكابتن هناك:' : 'Captain Waiting Duration:'}
+                        </span>
+                        <span className="font-black text-slate-700 bg-amber-100/80 px-2 py-0.5 rounded-md">
+                          {waitingMinutes === 0
+                            ? (lang === 'ar' ? 'بدون انتظار (عودة مباشرة)' : 'No wait (immediate return)')
+                            : (lang === 'ar' ? `${waitingMinutes} دقيقة انتظار` : `${waitingMinutes} mins wait`)}
+                        </span>
+                      </div>
+
+                      {/* Waiting Duration Chips */}
+                      <div className="grid grid-cols-4 gap-1.5">
+                        {[
+                          { min: 0, labelAr: 'بدون', labelEn: '0m' },
+                          { min: 15, labelAr: '15 د', labelEn: '15m' },
+                          { min: 30, labelAr: '30 د', labelEn: '30m' },
+                          { min: 45, labelAr: '45 د', labelEn: '45m' },
+                          { min: 60, labelAr: 'ساعة', labelEn: '1h' },
+                          { min: 90, labelAr: 'ساعة ونصف', labelEn: '1.5h' },
+                          { min: 120, labelAr: 'ساعتين', labelEn: '2h' },
+                        ].map((chip) => (
+                          <button
+                            key={chip.min}
+                            type="button"
+                            onClick={() => setWaitingMinutes(chip.min)}
+                            className={`py-1.5 px-1 rounded-lg text-[9.5px] font-black transition-all cursor-pointer ${
+                              waitingMinutes === chip.min
+                                ? 'bg-amber-500 text-white shadow-xs scale-[1.02]'
+                                : 'bg-slate-50 text-slate-700 hover:bg-amber-50 border border-slate-200'
+                            }`}
+                          >
+                            {lang === 'ar' ? chip.labelAr : chip.labelEn}
+                          </button>
+                        ))}
+                      </div>
+
+                      {waitingFee > 0 && (
+                        <p className="text-[9px] font-bold text-amber-800 bg-amber-50 p-1.5 rounded-md text-right">
+                          ⏱️ {lang === 'ar' ? `تشمل التسعيرة ${waitingFee} ج.م رسوم انتظار مدة (${waitingMinutes} دقيقة).` : `Includes ${waitingFee} EGP waiting fee (${waitingMinutes}m).`}
+                        </p>
+                      )}
+                    </div>
+                  )}
+                </div>
+
                 <div className="flex justify-between items-center">
                   <div className="text-left">
                     <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block">
-                      {lang === 'ar' ? 'المسافة الإجمالية' : 'Total Distance'}
+                      {isRoundTrip ? (lang === 'ar' ? 'المسافة (ذهاب وعودة)' : 'Distance (Round-Trip)') : (lang === 'ar' ? 'المسافة الإجمالية' : 'Total Distance')}
                     </span>
                     <span className="text-sm font-black text-slate-800">
-                      {distance} {lang === 'ar' ? 'كم' : 'km'}
+                      {totalTraveledDistance || distance} {lang === 'ar' ? 'كم' : 'km'}
+                      {isRoundTrip && (
+                        <span className="text-[9px] text-slate-400 block font-medium">
+                          ({oneWayDistance} {lang === 'ar' ? 'كم للاتجاه' : 'km each way'})
+                        </span>
+                      )}
                     </span>
                   </div>
                   <div className="text-right">
@@ -1537,9 +1754,30 @@ export const RiderView: React.FC<RiderViewProps> = ({
                   )}
                 </div>
 
+                {/* Safety Trip Share Trigger Button */}
+                <div className="bg-emerald-50/60 border border-emerald-200/80 rounded-xl p-2.5 flex items-center justify-between">
+                  <button
+                    type="button"
+                    onClick={() => handleShareSafety(null)}
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-[10px] font-black shadow-xs transition-transform active:scale-95 cursor-pointer pointer-events-auto"
+                  >
+                    <Share2 className="w-3 h-3" />
+                    <span>{lang === 'ar' ? 'مشاركة تفاصيل الرحلة للأمان مع الأهل' : 'Share Trip with Family'}</span>
+                  </button>
+                  <div className="flex items-center gap-1 text-emerald-800 text-[10px] font-extrabold">
+                    <ShieldCheck className="w-4 h-4 text-emerald-600" />
+                    <span>{lang === 'ar' ? 'أمان العائلات' : 'Safety First'}</span>
+                  </div>
+                </div>
+
                 <div className="bg-white/60 border border-amber-200/50 rounded-xl p-2.5 text-[10px] font-medium text-slate-600 leading-normal">
                   📌 {lang === 'ar' ? `من: ${pickupLoc?.nameAr || pickupLoc?.nameEn || ''}` : `From: ${pickupLoc?.nameEn || pickupLoc?.nameAr || ''}`}<br/>
                   🏁 {lang === 'ar' ? `إلى: ${dropoffLoc?.nameAr || dropoffLoc?.nameEn || ''}` : `To: ${dropoffLoc?.nameEn || dropoffLoc?.nameAr || ''}`}
+                  {isRoundTrip && (
+                    <span className="text-amber-800 font-bold block mt-1">
+                      🔄 {lang === 'ar' ? `مشوار ذهاب وعودة (مع ${waitingMinutes} دقيقة انتظار)` : `Round-Trip ride (with ${waitingMinutes}m wait)`}
+                    </span>
+                  )}
                 </div>
               </div>
             ) : (
@@ -1600,7 +1838,7 @@ export const RiderView: React.FC<RiderViewProps> = ({
               type="button"
               disabled={!selectedPickup || !selectedDropoff || !selectedPickupRegion || availableDrivers.length === 0}
                 onClick={() => {
-                  onRequestRide(requestedVehicleType, pickupLandmark, appliedPromo?.code, appliedPromo?.promoCodeId, appliedPromo?.discount);
+                  onRequestRide(requestedVehicleType, pickupLandmark, appliedPromo?.code, appliedPromo?.promoCodeId, appliedPromo?.discount, isRoundTrip, waitingMinutes);
                   setPickupLandmark('');
                 }}
               className="w-full py-3 bg-slate-900 hover:bg-black disabled:bg-slate-200 disabled:text-slate-400 text-white font-bold text-xs rounded-xl shadow-md disabled:shadow-none hover:scale-[1.01] transition-all cursor-pointer"
@@ -1610,8 +1848,8 @@ export const RiderView: React.FC<RiderViewProps> = ({
                   ? 'تعذر العثور على سائق في الوقت الحالي'
                   : 'No drivers available in your area right now'
                 : lang === 'ar'
-                ? 'اطلب كابتن عز الآن'
-                : 'Request Ezz Captain Now'}
+                ? (isRoundTrip ? 'اطلب رحلة ذهاب وعودة الآن 🔄' : 'اطلب كابتن عز الآن 🚖')
+                : (isRoundTrip ? 'Request Round-Trip Ride 🔄' : 'Request Ezz Captain Now 🚖')}
             </button>
 
             {/* Two-Step Confirmation Modal */}
@@ -1626,31 +1864,43 @@ export const RiderView: React.FC<RiderViewProps> = ({
                       <p className="text-[10px] text-slate-500">
                         {lang === 'ar' ? 'اختر نوع المركبة المناسبة لرحلتك' : 'Choose the vehicle type for your trip'}
                       </p>
-                      <div className="grid grid-cols-2 gap-2">
+                      <div className="grid grid-cols-3 gap-2">
                         {[
-                          { id: 'CAR', icon: '🚖', labelAr: 'سيارة', labelEn: 'Car' },
-                          { id: 'MOTORCYCLE', icon: '🏍️', labelAr: 'موتوسيكل', labelEn: 'Motorcycle' },
-                          { id: 'TOKTOK', icon: '🛺', labelAr: 'توكتوك', labelEn: 'TukTuk' },
-                          { id: 'TRICYCLE', icon: '🚲', labelAr: 'تروسيكل', labelEn: 'Tricycle' },
+                          { id: 'CAR', icon: '🚖', labelAr: 'سيارة', labelEn: 'Car', maxKm: null },
+                          { id: 'TOKTOK', icon: '🛺', labelAr: 'توكتوك', labelEn: 'TukTuk', maxKm: 50 },
+                          { id: 'MOTORCYCLE', icon: '🏍️', labelAr: 'موتوسيكل', labelEn: 'Motorcycle', maxKm: 50 },
                         ].map((v) => {
-                          const vFare = computeTripFare(distance, v.id, discountAmount);
+                          const isRestricted = v.maxKm !== null && distance > v.maxKm;
+                          const vFare = computeTripFare(distance, v.id, discountAmount, isRoundTrip, waitingMinutes);
                           const isSelected = confirmVehicleType === v.id;
                           return (
                             <button
                               key={v.id}
                               type="button"
-                              onClick={() => setConfirmVehicleType(v.id as any)}
-                              className={`p-3 rounded-xl border flex flex-col items-center justify-between text-center transition-all cursor-pointer ${
-                                isSelected
-                                  ? 'bg-slate-900 border-slate-950 text-white shadow-md scale-[1.03]'
-                                  : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-50'
+                              disabled={isRestricted}
+                              onClick={() => {
+                                if (isRestricted) return;
+                                setConfirmVehicleType(v.id as any);
+                              }}
+                              className={`p-2.5 rounded-xl border flex flex-col items-center justify-between text-center transition-all ${
+                                isRestricted
+                                  ? 'bg-slate-100 border-slate-200 text-slate-400 opacity-60 cursor-not-allowed'
+                                  : isSelected
+                                  ? 'bg-slate-900 border-slate-950 text-white shadow-md scale-[1.03] cursor-pointer'
+                                  : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-50 cursor-pointer'
                               }`}
                             >
                               <span className="text-xl">{v.icon}</span>
                               <span className="text-[10px] font-black mt-1">{lang === 'ar' ? v.labelAr : v.labelEn}</span>
-                              <span className={`text-[10px] font-black mt-0.5 ${isSelected ? 'text-amber-300' : 'text-blue-600'}`}>
-                                {vFare} {lang === 'ar' ? 'ج.م' : 'EGP'}
-                              </span>
+                              {isRestricted ? (
+                                <span className="text-[7.5px] font-bold text-rose-500 mt-0.5">
+                                  {lang === 'ar' ? 'أقصى حد 50 كم' : 'Max 50km'}
+                                </span>
+                              ) : (
+                                <span className={`text-[10px] font-black mt-0.5 ${isSelected ? 'text-amber-300' : 'text-blue-600'}`}>
+                                  {vFare} {lang === 'ar' ? 'ج.م' : 'EGP'}
+                                </span>
+                              )}
                             </button>
                           );
                         })}
@@ -1696,8 +1946,21 @@ export const RiderView: React.FC<RiderViewProps> = ({
                           <span className="text-[10px] font-bold text-slate-500">
                             {lang === 'ar' ? 'المسافة:' : 'Distance:'}
                           </span>
-                          <span className="text-[10px] font-bold text-slate-800">{distance} {lang === 'ar' ? 'كم' : 'km'}</span>
+                          <span className="text-[10px] font-bold text-slate-800">
+                            {totalTraveledDistance || distance} {lang === 'ar' ? 'كم' : 'km'}
+                            {isRoundTrip && ` (${lang === 'ar' ? 'ذهاب وعودة' : 'Round-trip'})`}
+                          </span>
                         </div>
+                        {isRoundTrip && (
+                          <div className="flex justify-between items-center text-amber-800 font-bold">
+                            <span className="text-[10px]">
+                              {lang === 'ar' ? 'وقت الانتظار:' : 'Waiting Time:'}
+                            </span>
+                            <span className="text-[10px]">
+                              {waitingMinutes} {lang === 'ar' ? 'دقيقة' : 'mins'}
+                            </span>
+                          </div>
+                        )}
                         <div className="flex justify-between items-center">
                           <span className="text-[10px] font-bold text-slate-500">
                             {lang === 'ar' ? 'المركبة:' : 'Vehicle:'}
@@ -1706,7 +1969,6 @@ export const RiderView: React.FC<RiderViewProps> = ({
                             {confirmVehicleType === 'CAR' && (lang === 'ar' ? '🚖 سيارة' : '🚖 Car')}
                             {confirmVehicleType === 'MOTORCYCLE' && (lang === 'ar' ? '🏍️ موتوسيكل' : '🏍️ Motorcycle')}
                             {confirmVehicleType === 'TOKTOK' && (lang === 'ar' ? '🛺 توكتوك' : '🛺 TukTuk')}
-                            {confirmVehicleType === 'TRICYCLE' && (lang === 'ar' ? '🚲 تروسيكل' : '🚲 Tricycle')}
                           </span>
                         </div>
                         <div className="border-t border-slate-200 pt-2 flex justify-between items-center">
@@ -1735,7 +1997,7 @@ export const RiderView: React.FC<RiderViewProps> = ({
                           type="button"
                           onClick={() => {
                             setConfirmStep('SENDING');
-                            onRequestRide(confirmVehicleType, confirmPickupLandmark || undefined, appliedPromo?.code, appliedPromo?.promoCodeId, appliedPromo?.discount);
+                            onRequestRide(confirmVehicleType, confirmPickupLandmark || undefined, appliedPromo?.code, appliedPromo?.promoCodeId, appliedPromo?.discount, isRoundTrip, waitingMinutes);
                             setPickupLandmark('');
                             setShowConfirmModal(false);
                           }}

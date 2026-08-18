@@ -43,7 +43,7 @@ export interface Trip {
   etaMinutes?: number;
   createdAt: string;
   completedAt?: string;
-  requestedVehicleType?: 'CAR' | 'MOTORCYCLE' | 'TOKTOK' | 'TRICYCLE';
+  requestedVehicleType?: 'CAR' | 'MOTORCYCLE' | 'TOKTOK';
   chatMessages?: ChatMessage[];
   riderRatingToDriver?: number;
   riderFeedbackTags?: string[];
@@ -59,6 +59,10 @@ export interface Trip {
   appliedPromoDiscount?: number;
   pickupRegionId?: string;
   pickupRegionName?: string;
+  isRoundTrip?: boolean;
+  waitingMinutes?: number;
+  roundTripWaitingFee?: number;
+  oneWayDistance?: number;
 }
 
 export interface PromoCode {
@@ -82,7 +86,7 @@ export interface Driver {
   password?: string;
   carModel: string;
   carPlate: string;
-  vehicleType: 'CAR' | 'MOTORCYCLE' | 'TOKTOK' | 'TRICYCLE';
+  vehicleType: 'CAR' | 'MOTORCYCLE' | 'TOKTOK';
   vehicleName: string;
   vehicleBrand?: string;
   vehicleLicense?: string;
