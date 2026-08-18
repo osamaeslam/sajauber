@@ -2253,7 +2253,7 @@
             status: 'SEARCHING',
             fare,
             commission,
-            distance,
+            distance: totalDistance,
             routeGeometry,
             etaMinutes,
             requestedVehicleType,
@@ -2271,7 +2271,6 @@
             waitingMinutes: isRoundTrip ? waitingMinutes : 0,
             roundTripWaitingFee: waitingFee,
             oneWayDistance: distance,
-            distance: totalDistance,
           };
 
           setActiveTripWithTracking(newTrip);

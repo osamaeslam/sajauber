@@ -16,6 +16,9 @@ const handleUnhandledRejection = (event: PromiseRejectionEvent) => {
 
 window.addEventListener('error', handleGlobalError);
 window.addEventListener('unhandledrejection', handleUnhandledRejection);
+window.addEventListener('vite:preloadError', () => {
+  window.location.reload();
+});
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>

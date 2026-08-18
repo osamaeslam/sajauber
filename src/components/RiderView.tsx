@@ -1,4 +1,4 @@
-import React, { useState, useEffect, lazy, Suspense, Dispatch, SetStateAction } from 'react';
+import React, { useState, useEffect, Dispatch, SetStateAction } from 'react';
 import { Location, Driver, Trip, Rider, Region, Ad } from '../types';
 import { MapPin, ArrowRightLeft, Navigation, Phone, Star, DollarSign, Loader2, Sparkles, AlertCircle, Car, HelpCircle, MessageSquare, Search, Check, X, ThumbsUp, ThumbsDown, Share2, ShieldCheck, Clock, RotateCw } from 'lucide-react';
 import { calculateHaversineDistance, estimateDrivingDistance, calculateDynamicFare, getVehiclePricing, calculateVehicleFare, calculateFullTripFare } from '../utils/haversine';
@@ -6,11 +6,8 @@ import { saveRiderPreferences, validatePromoCode } from '../supabaseService';
 import { RiderPreferences } from '../types';
 import { AdBanner } from './AdBanner';
 import { shareTripForSafety, smartCache } from '../utils/tripShare';
-
-// Lazy-load the heavy map components so the rider page opens instantly on
-// weak networks. The map bundle is only fetched when the user taps "Show map".
-const CityMap = lazy(() => import('./CityMap').then(m => ({ default: m.CityMap })));
-const GoogleMap = lazy(() => import('./GoogleMap').then(m => ({ default: m.GoogleMap })));
+import { CityMap } from './CityMap';
+import { GoogleMap } from './GoogleMap';
 
 interface RiderViewProps {
   rider: Rider;
@@ -1359,64 +1356,56 @@ export const RiderView: React.FC<RiderViewProps> = ({
               )}
             </div>
 
-            {/* Map for Pickup/Dropoff Selection — lazy loaded on demand */}
+            {/* Map for Pickup/Dropoff Selection */}
             {!showMap ? (
               <div className="flex items-center gap-2">
                 <button
                   type="button"
                   onClick={() => setShowMap(true)}
-                  className="flex-1 py-3 bg-slate-900 hover:bg-slate-800 text-white text-[11px] font-black rounded-2xl shadow-md transition-all flex items-center justify-center gap-2"
+                  className="flex-1 py-3 bg-slate-900 hover:bg-slate-800 text-white text-[11px] font-black rounded-2xl shadow-md transition-all flex items-center justify-center gap-2 cursor-pointer"
                 >
                   <MapPin className="w-4 h-4" />
                   {lang === 'ar' ? 'عرض الخريطة لاختيار نقطة الالتقاء / الوصول' : 'Show map to pick pickup / destination'}
                 </button>
               </div>
             ) : (
-              <Suspense
-                fallback={
-                  <div className="w-full h-64 flex items-center justify-center bg-slate-100 rounded-2xl">
-                    <Loader2 className="w-6 h-6 animate-spin text-slate-400" />
-                  </div>
-                }
-              >
-                 {stats?.mapProvider === 'google' && stats?.googleMapsApiKey ? (
-                  <GoogleMap
-                    locations={locations}
-                    activeTrip={activeTrip}
-                    selectedPickup={selectedPickup}
-                    selectedDropoff={selectedDropoff}
-                    lang={lang}
-                    onUpdateLocations={onUpdateLocations}
-                    onSelectPickup={setSelectedPickup}
-                    onSelectDropoff={setSelectedDropoff}
-                    routeGeometry={activeTrip?.routeGeometry || routeGeometry || undefined}
-                    apiKey={stats.googleMapsApiKey}
-                    distanceKm={distance}
-                    isRealRoute={!!realDistance}
-                  />
-                ) : (
-                  <CityMap
-                    locations={locations}
-                    activeTrip={activeTrip}
-                    selectedPickup={selectedPickup}
-                    selectedDropoff={selectedDropoff}
-                    lang={lang}
-                    onUpdateLocations={onUpdateLocations}
-                    onSelectPickup={setSelectedPickup}
-                    onSelectDropoff={setSelectedDropoff}
-                    routeGeometry={activeTrip?.routeGeometry || routeGeometry || undefined}
-                    distanceKm={distance}
-                    isRealRoute={!!realDistance}
-                    readOnly={!!activeTrip}
-                    currentDriverPosition={activeTrip?.driverId ? (() => {
-                      const drv = drivers.find(d => d.id === activeTrip.driverId);
-                      return drv?.lat && drv?.lng ? { lat: drv.lat, lng: drv.lng } : null;
-                    })() : null}
-                    dataSaverMode={lowDataMode}
-                    onToggleDataSaver={lowDataMode ? onDisableLowData : onEnableLowData}
-                  />
-                )}
-              </Suspense>
+              stats?.mapProvider === 'google' && stats?.googleMapsApiKey ? (
+                <GoogleMap
+                  locations={locations}
+                  activeTrip={activeTrip}
+                  selectedPickup={selectedPickup}
+                  selectedDropoff={selectedDropoff}
+                  lang={lang}
+                  onUpdateLocations={onUpdateLocations}
+                  onSelectPickup={setSelectedPickup}
+                  onSelectDropoff={setSelectedDropoff}
+                  routeGeometry={activeTrip?.routeGeometry || routeGeometry || undefined}
+                  apiKey={stats.googleMapsApiKey}
+                  distanceKm={distance}
+                  isRealRoute={!!realDistance}
+                />
+              ) : (
+                <CityMap
+                  locations={locations}
+                  activeTrip={activeTrip}
+                  selectedPickup={selectedPickup}
+                  selectedDropoff={selectedDropoff}
+                  lang={lang}
+                  onUpdateLocations={onUpdateLocations}
+                  onSelectPickup={setSelectedPickup}
+                  onSelectDropoff={setSelectedDropoff}
+                  routeGeometry={activeTrip?.routeGeometry || routeGeometry || undefined}
+                  distanceKm={distance}
+                  isRealRoute={!!realDistance}
+                  readOnly={!!activeTrip}
+                  currentDriverPosition={activeTrip?.driverId ? (() => {
+                    const drv = drivers.find(d => d.id === activeTrip.driverId);
+                    return drv?.lat && drv?.lng ? { lat: drv.lat, lng: drv.lng } : null;
+                  })() : null}
+                  dataSaverMode={lowDataMode}
+                  onToggleDataSaver={lowDataMode ? onDisableLowData : onEnableLowData}
+                />
+              )
             )}
 
             {/* Starred / Favorite Locations Section */}
