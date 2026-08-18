@@ -311,17 +311,27 @@ export const AdminView: React.FC<AdminViewProps> = ({
 
       const updatedList = regions.map((r) => (r.id === targetRegion.id ? updatedRegion : r));
       onUpdateRegions(updatedList);
-      await saveRegion(updatedRegion);
+      const savedToDb = await saveRegion(updatedRegion);
       setSaveSuccess(true);
       setTimeout(() => setSaveSuccess(false), 3000);
       setPricingDirty(false);
-      triggerToast(
-        lang === 'ar' ? 'تم الحفظ' : 'Saved',
-        lang === 'ar'
-          ? `تم حفظ تسعيرة منطقة "${targetRegion.nameAr}" بنجاح`
-          : `Pricing for region "${targetRegion.nameAr}" saved successfully`,
-        'success'
-      );
+      if (savedToDb) {
+        triggerToast(
+          lang === 'ar' ? 'تم الحفظ في السحابة ☁️' : 'Saved to Cloud',
+          lang === 'ar'
+            ? `تم حفظ تسعيرة وعمولة منطقة "${targetRegion.nameAr}" في قاعدة بيانات Supabase بنجاح`
+            : `Pricing and commission for region "${targetRegion.nameAr}" saved to Supabase cloud successfully`,
+          'success'
+        );
+      } else {
+        triggerToast(
+          lang === 'ar' ? 'تم الحفظ محلياً 💾' : 'Saved Locally',
+          lang === 'ar'
+            ? `تم حفظ تسعيرة منطقة "${targetRegion.nameAr}" على جهازك. لحفظها سحابياً في Supabase، يرجى تشغيل كود إنشاء جدول ezz_regions من الـ SQL Editor`
+            : `Pricing saved locally. To save in Supabase, ensure ezz_regions table exists in Supabase.`,
+          'warning'
+        );
+      }
     }
   };
 
