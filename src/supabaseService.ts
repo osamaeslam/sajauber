@@ -2520,17 +2520,44 @@ export const deleteLocationInDB = async (id: string): Promise<boolean> => {
 // --- REGIONS CRUD ---
 
 export const fetchRegions = async (): Promise<Region[] | null> => {
+  let cachedRegions: Region[] | null = null;
+  try {
+    const raw = localStorage.getItem('ezz_regions_cache');
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed)) cachedRegions = parsed;
+    }
+  } catch {}
+
   try {
     const { data, error } = await supabase.from('ezz_regions').select('*').order('created_at', { ascending: true });
     if (error) throw error;
-    return (data || []).map(mapRegionFromDB);
+    const remote = (data || []).map(mapRegionFromDB);
+    try {
+      localStorage.setItem('ezz_regions_cache', JSON.stringify(remote));
+    } catch {}
+    return remote;
   } catch (err: any) {
     console.warn('Could not fetch regions from Supabase:', err.message);
-    return null;
+    return cachedRegions;
   }
 };
 
 export const saveRegion = async (region: Region): Promise<boolean> => {
+  // 1. Immediately cache in localStorage so user configuration is never lost
+  try {
+    const raw = localStorage.getItem('ezz_regions_cache');
+    let list: Region[] = raw ? JSON.parse(raw) : [];
+    if (!Array.isArray(list)) list = [];
+    const index = list.findIndex(r => r.id === region.id);
+    if (index >= 0) {
+      list[index] = region;
+    } else {
+      list.push(region);
+    }
+    localStorage.setItem('ezz_regions_cache', JSON.stringify(list));
+  } catch {}
+
   try {
     const { error } = await supabase.from('ezz_regions').upsert(mapRegionToDB(region));
     if (error) throw error;
@@ -2542,6 +2569,17 @@ export const saveRegion = async (region: Region): Promise<boolean> => {
 };
 
 export const deleteRegionInDB = async (regionId: string): Promise<boolean> => {
+  try {
+    const raw = localStorage.getItem('ezz_regions_cache');
+    if (raw) {
+      let list: Region[] = JSON.parse(raw);
+      if (Array.isArray(list)) {
+        list = list.filter(r => r.id !== regionId);
+        localStorage.setItem('ezz_regions_cache', JSON.stringify(list));
+      }
+    }
+  } catch {}
+
   try {
     const { error } = await supabase.from('ezz_regions').delete().eq('id', regionId);
     if (error) throw error;
