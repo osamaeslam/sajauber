@@ -12,6 +12,9 @@ import {
   saveStats,
   loadSession,
   getDeviceId,
+  ensureRegionPricing,
+  validateRegionPricing,
+  saveRegion,
 } from '../supabaseService';
 import { requestNotificationPermission } from '../utils/notifications';
 import { supabase } from '../supabaseClient';
@@ -89,8 +92,25 @@ export const useInitialLoad = ({
           }
 
           const dbRegions = await fetchRegions();
+          let dbStats: any = null;
           if (dbRegions) {
-            setRegions(dbRegions);
+            dbStats = await fetchStats();
+            const statsSource = dbStats || (() => {
+              try {
+                const raw = localStorage.getItem('ezz_system_stats');
+                return raw ? JSON.parse(raw) : null;
+              } catch {
+                return null;
+              }
+            })();
+            const normalized = dbRegions.map((region) => ensureRegionPricing(region, statsSource));
+            setRegions(normalized);
+            for (const region of normalized) {
+              if (!validateRegionPricing(region.pricing)) {
+                console.warn('[useInitialLoad] Region missing pricing, saving normalized defaults:', region.id);
+                await saveRegion(region);
+              }
+            }
           }
 
           const dbAds = await fetchAds();
@@ -109,7 +129,9 @@ export const useInitialLoad = ({
             }
           }
 
-          const dbStats = await fetchStats();
+          if (!dbStats) {
+            dbStats = await fetchStats();
+          }
           if (dbStats) {
             statsLoadedRef.current = true;
             setStats(dbStats);

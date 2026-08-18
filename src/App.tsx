@@ -2145,10 +2145,10 @@
         // Fallback: if real route unavailable, use estimated distance so trip still proceeds
         if (!distance) {
           const directDistance = calculateHaversineDistance(pLoc.lat, pLoc.lng, dLoc.lat, dLoc.lng);
-          const regionBuffer = (selectedRegionObj?.pricing?.customPricingEnabled && selectedRegionObj.pricing.distanceBuffer !== undefined && selectedRegionObj.pricing.distanceBuffer > 0)
+          const regionBuffer = (selectedRegionObj?.pricing?.distanceBuffer !== undefined && selectedRegionObj.pricing.distanceBuffer > 0)
             ? selectedRegionObj.pricing.distanceBuffer
             : (stats.distanceBuffer ?? 1.25);
-          const regionAddKm = (selectedRegionObj?.pricing?.customPricingEnabled && selectedRegionObj.pricing.additionalKm !== undefined)
+          const regionAddKm = (selectedRegionObj?.pricing?.additionalKm !== undefined)
             ? selectedRegionObj.pricing.additionalKm
             : (stats.additionalKm ?? 0.0);
           const fallbackDistance = estimateDrivingDistance(directDistance, regionBuffer) + regionAddKm;

@@ -456,15 +456,15 @@ export const RiderView: React.FC<RiderViewProps> = ({
   let originalFare = 0;
   let commissionRate = 10;
 
-  const distanceBuffer = (selectedRegion?.pricing?.customPricingEnabled && selectedRegion.pricing.distanceBuffer !== undefined && selectedRegion.pricing.distanceBuffer > 0)
+  const distanceBuffer = (selectedRegion?.pricing?.distanceBuffer !== undefined && selectedRegion.pricing.distanceBuffer > 0)
     ? selectedRegion.pricing.distanceBuffer
     : ((stats?.distanceBuffer !== undefined && stats.distanceBuffer > 0) ? stats.distanceBuffer : 1.25);
 
-  const additionalKm = (selectedRegion?.pricing?.customPricingEnabled && selectedRegion.pricing.additionalKm !== undefined)
+  const additionalKm = (selectedRegion?.pricing?.additionalKm !== undefined)
     ? selectedRegion.pricing.additionalKm
     : (stats?.additionalKm !== undefined ? stats.additionalKm : 0.0);
 
-  const incomingCommission = (selectedRegion?.pricing?.customPricingEnabled && selectedRegion.pricing.incomingCommission !== undefined)
+  const incomingCommission = (selectedRegion?.pricing?.incomingCommission !== undefined)
     ? selectedRegion.pricing.incomingCommission
     : (stats?.incomingCommission ?? 5);
 

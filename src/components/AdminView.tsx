@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Driver, Trip, SystemStats, Location, Rider, PromoCode, Region, RegionPricing, Ad } from '../types';
 import { DollarSign, ShieldAlert, Award, TrendingUp, Settings, Percent, CheckCircle, Star, Users, MapPin, Database, Sparkles, Search, AlertCircle, HelpCircle, Globe, Loader2, Calendar, Clock, BarChart2, Car, Map, Trash2, Plus, Megaphone, Phone, Eye, EyeOff } from 'lucide-react';
 import { ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, AreaChart, Area, PieChart, Pie, Cell } from 'recharts';
-import { fetchTripsHistoryFilteredPaginated, fetchTripsHistoryCount, fetchAllTrips, generatePromoCode, fetchPromoCodes, deletePromoCode, fetchRegions, saveRegion, deleteRegionInDB, fetchAds, saveAd, deleteAd, loadSession, getDeviceId } from '../supabaseService';
+import { fetchTripsHistoryFilteredPaginated, fetchTripsHistoryCount, fetchAllTrips, generatePromoCode, fetchPromoCodes, deletePromoCode, fetchRegions, saveRegion, deleteRegionInDB, fetchAds, saveAd, deleteAd, loadSession, getDeviceId, ensureRegionPricing } from '../supabaseService';
 import { PRIVACY_POLICY, TERMS_OF_SERVICE, DATA_RETENTION_POLICY } from '../utils/legal';
 import { exportBackup, importBackup } from '../utils/backup';
 import { AVAILABLE_CITIES } from '../constants';
@@ -139,7 +139,7 @@ export const AdminView: React.FC<AdminViewProps> = ({
 
   // Scope for pricing settings: 'global' or a specific region ID
   const [selectedPricingScope, setSelectedPricingScope] = useState<'global' | string>('global');
-  const [regionCustomPricingEnabled, setRegionCustomPricingEnabled] = useState<boolean>(false);
+  const [regionPricingWarning, setRegionPricingWarning] = useState<string | null>(null);
 
   // Track whether the user has edited the form. While editing, the form is the
   // single source of truth and we must NOT overwrite it with `stats` (which can
@@ -150,9 +150,9 @@ export const AdminView: React.FC<AdminViewProps> = ({
 
   useEffect(() => {
     if (pricingDirty) return; // don't clobber the user's in-progress edits
+    setRegionPricingWarning(null);
 
     if (selectedPricingScope === 'global') {
-      setRegionCustomPricingEnabled(false);
       setPricingForm({
         distanceBuffer: stats.distanceBuffer ?? 1.25,
         additionalKm: stats.additionalKm ?? 0.0,
@@ -187,44 +187,44 @@ export const AdminView: React.FC<AdminViewProps> = ({
       });
     } else {
       const targetRegion = regions.find((r) => r.id === selectedPricingScope);
-      const customP = targetRegion?.pricing;
-      const isCustom = !!customP?.customPricingEnabled;
-      setRegionCustomPricingEnabled(isCustom);
+      const customP = targetRegion?.pricing || {};
+      const hasPricing = Object.keys(customP).length > 0;
+      setRegionPricingWarning(hasPricing ? null : (lang === 'ar' ? 'هذه المنطقة مفيهاش تسعيرة مكتملة بعد، غيّر القيم واضغط حفظ.' : 'This region does not have a complete pricing set yet. Update the values and save.'));
 
       setPricingForm({
-        distanceBuffer: customP?.distanceBuffer ?? stats.distanceBuffer ?? 1.25,
-        additionalKm: customP?.additionalKm ?? stats.additionalKm ?? 0.0,
+        distanceBuffer: customP.distanceBuffer ?? stats.distanceBuffer ?? 1.25,
+        additionalKm: customP.additionalKm ?? stats.additionalKm ?? 0.0,
         supportWhatsApp: stats.supportWhatsApp || '201015555555',
-        carBaseFare: customP?.carBaseFare ?? stats.carBaseFare ?? 20,
-        carMinFare: customP?.carMinFare ?? stats.carMinFare ?? 2,
-        carPricePerKm0to20: customP?.carPricePerKm0to20 ?? stats.carPricePerKm ?? 8,
-        carPricePerKm20to50: customP?.carPricePerKm20to50 ?? stats.carPricePerKm20to50 ?? 8,
-        carPricePerKm50plus: customP?.carPricePerKm50plus ?? stats.carPricePerKm50plus ?? 8,
-        motorcycleBaseFare: customP?.motorcycleBaseFare ?? stats.motorcycleBaseFare ?? 12,
-        motorcycleMinFare: customP?.motorcycleMinFare ?? stats.motorcycleMinFare ?? 2,
-        motorcyclePricePerKm0to20: customP?.motorcyclePricePerKm0to20 ?? stats.motorcyclePricePerKm ?? 5,
-        motorcyclePricePerKm20to50: customP?.motorcyclePricePerKm20to50 ?? stats.motorcyclePricePerKm20to50 ?? 5,
-        motorcyclePricePerKm50plus: customP?.motorcyclePricePerKm50plus ?? stats.motorcyclePricePerKm50plus ?? 5,
-        toktokBaseFare: customP?.toktokBaseFare ?? stats.toktokBaseFare ?? 10,
-        toktokMinFare: customP?.toktokMinFare ?? stats.toktokMinFare ?? 2,
-        toktokPricePerKm0to20: customP?.toktokPricePerKm0to20 ?? stats.toktokPricePerKm ?? 4,
-        toktokPricePerKm20to50: customP?.toktokPricePerKm20to50 ?? stats.toktokPricePerKm20to50 ?? 4,
-        toktokPricePerKm50plus: customP?.toktokPricePerKm50plus ?? stats.toktokPricePerKm50plus ?? 4,
-        tricycleBaseFare: customP?.tricycleBaseFare ?? stats.tricycleBaseFare ?? 10,
-        tricycleMinFare: customP?.tricycleMinFare ?? stats.tricycleMinFare ?? 2,
-        tricyclePricePerKm0to20: customP?.tricyclePricePerKm0to20 ?? stats.tricyclePricePerKm ?? 4,
-        tricyclePricePerKm20to50: customP?.tricyclePricePerKm20to50 ?? stats.tricyclePricePerKm20to50 ?? 4,
-        tricyclePricePerKm50plus: customP?.tricyclePricePerKm50plus ?? stats.tricyclePricePerKm50plus ?? 4,
-        commissionMode: customP?.commissionMode ?? stats.commissionMode ?? 'fixed',
-        incomingCommission: customP?.incomingCommission ?? stats.incomingCommission ?? 5,
-        outgoingCommission: customP?.outgoingCommission ?? stats.outgoingCommission ?? 5,
-        incomingCommissionPercent: customP?.incomingCommissionPercent ?? stats.incomingCommissionPercent ?? 10,
-        outgoingCommissionPercent: customP?.outgoingCommissionPercent ?? stats.outgoingCommissionPercent ?? 10,
+        carBaseFare: customP.carBaseFare ?? stats.carBaseFare ?? 20,
+        carMinFare: customP.carMinFare ?? stats.carMinFare ?? 2,
+        carPricePerKm0to20: customP.carPricePerKm0to20 ?? stats.carPricePerKm ?? 8,
+        carPricePerKm20to50: customP.carPricePerKm20to50 ?? stats.carPricePerKm20to50 ?? 8,
+        carPricePerKm50plus: customP.carPricePerKm50plus ?? stats.carPricePerKm50plus ?? 8,
+        motorcycleBaseFare: customP.motorcycleBaseFare ?? stats.motorcycleBaseFare ?? 12,
+        motorcycleMinFare: customP.motorcycleMinFare ?? stats.motorcycleMinFare ?? 2,
+        motorcyclePricePerKm0to20: customP.motorcyclePricePerKm0to20 ?? stats.motorcyclePricePerKm ?? 5,
+        motorcyclePricePerKm20to50: customP.motorcyclePricePerKm20to50 ?? stats.motorcyclePricePerKm20to50 ?? 5,
+        motorcyclePricePerKm50plus: customP.motorcyclePricePerKm50plus ?? stats.motorcyclePricePerKm50plus ?? 5,
+        toktokBaseFare: customP.toktokBaseFare ?? stats.toktokBaseFare ?? 10,
+        toktokMinFare: customP.toktokMinFare ?? stats.toktokMinFare ?? 2,
+        toktokPricePerKm0to20: customP.toktokPricePerKm0to20 ?? stats.toktokPricePerKm ?? 4,
+        toktokPricePerKm20to50: customP.toktokPricePerKm20to50 ?? stats.toktokPricePerKm20to50 ?? 4,
+        toktokPricePerKm50plus: customP.toktokPricePerKm50plus ?? stats.toktokPricePerKm50plus ?? 4,
+        tricycleBaseFare: customP.tricycleBaseFare ?? stats.tricycleBaseFare ?? 10,
+        tricycleMinFare: customP.tricycleMinFare ?? stats.tricycleMinFare ?? 2,
+        tricyclePricePerKm0to20: customP.tricyclePricePerKm0to20 ?? stats.tricyclePricePerKm ?? 4,
+        tricyclePricePerKm20to50: customP.tricyclePricePerKm20to50 ?? stats.tricyclePricePerKm20to50 ?? 4,
+        tricyclePricePerKm50plus: customP.tricyclePricePerKm50plus ?? stats.tricyclePricePerKm50plus ?? 4,
+        commissionMode: customP.commissionMode ?? stats.commissionMode ?? 'fixed',
+        incomingCommission: customP.incomingCommission ?? stats.incomingCommission ?? 5,
+        outgoingCommission: customP.outgoingCommission ?? stats.outgoingCommission ?? 5,
+        incomingCommissionPercent: customP.incomingCommissionPercent ?? stats.incomingCommissionPercent ?? 10,
+        outgoingCommissionPercent: customP.outgoingCommissionPercent ?? stats.outgoingCommissionPercent ?? 10,
         mapProvider: stats.mapProvider || 'leaflet',
         googleMapsApiKey: stats.googleMapsApiKey || '',
       });
     }
-  }, [stats, regions, selectedPricingScope, pricingDirty]);
+  }, [stats, regions, selectedPricingScope, pricingDirty, lang]);
 
   const handleSavePricing = async () => {
     if (selectedPricingScope === 'global') {
@@ -273,8 +273,7 @@ export const AdminView: React.FC<AdminViewProps> = ({
       const targetRegion = regions.find((r) => r.id === selectedPricingScope);
       if (!targetRegion) return;
 
-      const updatedPricing: RegionPricing = {
-        customPricingEnabled: regionCustomPricingEnabled,
+      const updatedPricing = {
         distanceBuffer: pricingForm.distanceBuffer,
         additionalKm: pricingForm.additionalKm,
         carBaseFare: pricingForm.carBaseFare,
@@ -368,7 +367,6 @@ export const AdminView: React.FC<AdminViewProps> = ({
       mapProvider: stats.mapProvider || 'leaflet',
       googleMapsApiKey: stats.googleMapsApiKey || '',
     });
-    setRegionCustomPricingEnabled(true);
     setPricingDirty(true);
     triggerToast(
       lang === 'ar' ? 'تم النسخ' : 'Copied',
@@ -380,23 +378,16 @@ export const AdminView: React.FC<AdminViewProps> = ({
   const handleResetRegionPricingToDefault = async () => {
     const targetRegion = regions.find((r) => r.id === selectedPricingScope);
     if (!targetRegion) return;
-    setRegionCustomPricingEnabled(false);
-    const updatedRegion: Region = {
-      ...targetRegion,
-      pricing: {
-        ...(targetRegion.pricing || {}),
-        customPricingEnabled: false,
-      },
-    };
-    const updatedList = regions.map((r) => (r.id === targetRegion.id ? updatedRegion : r));
+    const defaultedRegion = ensureRegionPricing(targetRegion, stats);
+    const updatedList = regions.map((r) => (r.id === targetRegion.id ? defaultedRegion : r));
     onUpdateRegions(updatedList);
-    await saveRegion(updatedRegion);
+    await saveRegion(defaultedRegion);
     setPricingDirty(false);
     triggerToast(
       lang === 'ar' ? 'تمت الاستعادة' : 'Reset',
       lang === 'ar'
-        ? `تم إعادة ضبط منطقة "${targetRegion.nameAr}" لاستخدام التسعيرة العامة الافتراضية`
-        : `Region "${targetRegion.nameAr}" reverted to default pricing`,
+        ? `تم إعادة ضبط منطقة "${targetRegion.nameAr}" لقيم التسعيرة الافتراضية`
+        : `Region "${targetRegion.nameAr}" reset to default pricing`,
       'info'
     );
   };
@@ -1170,9 +1161,10 @@ export const AdminView: React.FC<AdminViewProps> = ({
                           lng: 31.2561,
                           createdAt: new Date().toISOString(),
                         };
-                        const updated = [...regions, newRegion];
+                        const withPricing = ensureRegionPricing(newRegion, stats);
+                        const updated = [...regions, withPricing];
                         onUpdateRegions(updated);
-                        saveRegion(newRegion);
+                        saveRegion(withPricing);
                         setNewRegionNameAr('');
                         setNewRegionNameEn('');
                         setRegionNameError('');
@@ -1211,30 +1203,21 @@ export const AdminView: React.FC<AdminViewProps> = ({
                         <div className="flex items-center gap-2">
                           <p className="text-xs font-black text-slate-800">{region.nameAr}</p>
                           <span className="text-[9px] text-slate-400 font-bold">({region.nameEn})</span>
-                          {region.pricing?.customPricingEnabled ? (
-                            <span className="text-[8px] bg-emerald-100 text-emerald-800 font-black px-1.5 py-0.5 rounded-full flex items-center gap-1">
-                              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
-                              {lang === 'ar' ? 'تسعيرة مخصصة' : 'Custom Pricing'}
-                            </span>
-                          ) : (
-                            <span className="text-[8px] bg-slate-100 text-slate-600 font-bold px-1.5 py-0.5 rounded-full">
-                              {lang === 'ar' ? 'تسعيرة عامة' : 'Global Pricing'}
-                            </span>
-                          )}
+                          <span className="text-[8px] bg-indigo-100 text-indigo-800 font-black px-1.5 py-0.5 rounded-full">
+                            {lang === 'ar' ? 'تسعيرة منطقة' : 'Region Pricing'}
+                          </span>
                         </div>
-                        {region.pricing?.customPricingEnabled && (
-                          <div className="flex flex-wrap items-center gap-2 text-[8px] text-slate-500 font-bold">
-                            <span>🚗 فتح العداد: {region.pricing.carBaseFare ?? 20} ج.م</span>
-                            <span>•</span>
-                            <span>الكيلو: {region.pricing.carPricePerKm0to20 ?? 8} ج.م</span>
-                            <span>•</span>
-                            <span>
-                              العمولة: {region.pricing.commissionMode === 'percent'
-                                ? `${region.pricing.incomingCommissionPercent ?? 10}%`
-                                : `${region.pricing.incomingCommission ?? 5} ج.م`}
-                            </span>
-                          </div>
-                        )}
+                        <div className="flex flex-wrap items-center gap-2 text-[8px] text-slate-500 font-bold">
+                          <span>🚗 فتح العداد: {region.pricing?.carBaseFare ?? 20} ج.م</span>
+                          <span>•</span>
+                          <span>الكيلو: {region.pricing?.carPricePerKm0to20 ?? 8} ج.م</span>
+                          <span>•</span>
+                          <span>
+                            العمولة: {region.pricing?.commissionMode === 'percent'
+                              ? `${region.pricing?.incomingCommissionPercent ?? 10}%`
+                              : `${region.pricing?.incomingCommission ?? 5} ج.م`}
+                          </span>
+                        </div>
                         <span className="inline-block text-[8px] bg-slate-100 text-slate-600 font-bold px-1.5 py-0.5 rounded-full">
                           {region.country}
                         </span>
@@ -1371,7 +1354,6 @@ export const AdminView: React.FC<AdminViewProps> = ({
 
                 {regions.map((reg) => {
                   const isSelected = selectedPricingScope === reg.id;
-                  const hasCustom = !!reg.pricing?.customPricingEnabled;
                   return (
                     <button
                       key={reg.id}
@@ -1383,24 +1365,12 @@ export const AdminView: React.FC<AdminViewProps> = ({
                       className={`px-3 py-2 rounded-xl text-[10px] font-black transition-all cursor-pointer flex items-center gap-1.5 ${
                         isSelected
                           ? 'bg-indigo-600 text-white shadow-sm ring-2 ring-indigo-500/30'
-                          : hasCustom
-                          ? 'bg-emerald-50 border border-emerald-300 text-emerald-800 hover:bg-emerald-100'
                           : 'bg-slate-50 border border-slate-200 text-slate-700 hover:bg-slate-100'
                       }`}
                     >
                       <MapPin className="w-3.5 h-3.5" />
                       <span>{reg.nameAr}</span>
-                      {hasCustom ? (
-                        <span
-                          className={`text-[8px] px-1.5 py-0.2 rounded-full font-bold ${
-                            isSelected ? 'bg-emerald-300 text-slate-950' : 'bg-emerald-200 text-emerald-900'
-                          }`}
-                        >
-                          {lang === 'ar' ? 'مخصصة' : 'Custom'}
-                        </span>
-                      ) : (
-                        <span className="text-[8px] opacity-60">({lang === 'ar' ? 'افتراضية' : 'Default'})</span>
-                      )}
+                      <span className="text-[8px] opacity-60">({lang === 'ar' ? 'تسعيرة خاصة' : 'Region Pricing'})</span>
                     </button>
                   );
                 })}
@@ -1408,17 +1378,11 @@ export const AdminView: React.FC<AdminViewProps> = ({
 
               {/* Active Scope Banner */}
               {selectedPricingScope !== 'global' && (
-                <div
-                  className={`p-3 rounded-xl border transition-all ${
-                    regionCustomPricingEnabled
-                      ? 'bg-emerald-50/90 border-emerald-200 text-emerald-900'
-                      : 'bg-amber-50/90 border-amber-200 text-amber-900'
-                  }`}
-                >
+                <div className="p-3 rounded-xl border border-indigo-200 bg-indigo-50/90 text-indigo-900 transition-all">
                   <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
                     <div className="space-y-0.5">
                       <div className="flex items-center gap-1.5">
-                        <span className="text-base">{regionCustomPricingEnabled ? '✨' : '⚠️'}</span>
+                        <span className="text-base">📍</span>
                         <p className="text-[11px] font-black">
                           {lang === 'ar'
                             ? `تسعيرة منطقة: ${regions.find((r) => r.id === selectedPricingScope)?.nameAr || ''}`
@@ -1426,48 +1390,32 @@ export const AdminView: React.FC<AdminViewProps> = ({
                         </p>
                       </div>
                       <p className="text-[9px] opacity-80 leading-relaxed">
-                        {regionCustomPricingEnabled
-                          ? lang === 'ar'
-                            ? 'التسعيرة المخصصة مفعلة حالياً لهذه المنطقة وتلغي التسعيرة العامة عند انطلاق أي رحلة منها.'
-                            : 'Custom pricing is active for this region and overrides global pricing for rides starting here.'
-                          : lang === 'ar'
-                          ? 'هذه المنطقة تستخدم حالياً التسعيرة العامة لجميع المناطق. يمكنك تفعيل تسعيرة مستقلة بالزر المقابل.'
-                          : 'This region currently uses the global default pricing. You can enable custom pricing using the button.'}
+                        {lang === 'ar'
+                          ? 'الأسعار المُدخلة هنا تُطبق مباشرة على الركاب والسائقين في هذه المنطقة.'
+                          : 'The prices entered here are applied directly to riders and drivers in this region.'}
                       </p>
+                      {regionPricingWarning && (
+                        <p className="text-[9px] text-amber-700 font-black">{regionPricingWarning}</p>
+                      )}
                     </div>
 
                     <div className="flex items-center gap-1.5 shrink-0">
-                      {!regionCustomPricingEnabled ? (
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setRegionCustomPricingEnabled(true);
-                            setPricingDirty(true);
-                          }}
-                          className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-[9px] font-black transition-all shadow-sm cursor-pointer"
-                        >
-                          {lang === 'ar' ? '⚡ تفعيل تسعيرة مخصصة' : '⚡ Enable Custom Pricing'}
-                        </button>
-                      ) : (
-                        <>
-                          <button
-                            type="button"
-                            onClick={handleCopyGlobalToRegion}
-                            className="px-2.5 py-1.5 bg-white border border-emerald-300 text-emerald-800 hover:bg-emerald-100 rounded-lg text-[9px] font-bold transition-all cursor-pointer"
-                            title={lang === 'ar' ? 'نسخ أرقام التسعيرة العامة' : 'Copy global defaults'}
-                          >
-                            {lang === 'ar' ? '📋 نسخ العامة' : 'Copy Global'}
-                          </button>
-                          <button
-                            type="button"
-                            onClick={handleResetRegionPricingToDefault}
-                            className="px-2.5 py-1.5 bg-white border border-rose-200 text-rose-600 hover:bg-rose-50 rounded-lg text-[9px] font-bold transition-all cursor-pointer"
-                            title={lang === 'ar' ? 'إلغاء التخصيص والعودة للافتراضي' : 'Revert to default'}
-                          >
-                            {lang === 'ar' ? '🔄 إلغاء التخصيص' : 'Revert'}
-                          </button>
-                        </>
-                      )}
+                      <button
+                        type="button"
+                        onClick={handleCopyGlobalToRegion}
+                        className="px-2.5 py-1.5 bg-white border border-indigo-300 text-indigo-800 hover:bg-indigo-100 rounded-lg text-[9px] font-bold transition-all cursor-pointer"
+                        title={lang === 'ar' ? 'نسخ أرقام التسعيرة العامة' : 'Copy global defaults'}
+                      >
+                        {lang === 'ar' ? '📋 نسخ العامة' : 'Copy Global'}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={handleResetRegionPricingToDefault}
+                        className="px-2.5 py-1.5 bg-white border border-rose-200 text-rose-600 hover:bg-rose-50 rounded-lg text-[9px] font-bold transition-all cursor-pointer"
+                        title={lang === 'ar' ? 'إعادة ضبط لقيم افتراضية' : 'Reset to default'}
+                      >
+                        {lang === 'ar' ? '🔄 إعادة ضبط' : 'Reset'}
+                      </button>
                     </div>
                   </div>
                 </div>

@@ -1,5 +1,5 @@
 import { supabase, isSupabaseConfigured } from './supabaseClient';
-import { Driver, Rider, Location, Trip, SystemStats, Admin, RiderPreferences, AuditLogEntry, PromoCode, Region, Ad } from './types';
+import { Driver, Rider, Location, Trip, SystemStats, Admin, RiderPreferences, AuditLogEntry, PromoCode, Region, RegionPricing, Ad } from './types';
 import { PAGINATION_PAGE_SIZE } from './constants';
 import { verifyPassword, isSecureHash, hashPassword, generateUUID } from './utils/security';
 
@@ -1379,16 +1379,19 @@ export const mapRegionFromDB = (row: any): Region => ({
   createdAt: row.created_at || '',
 });
 
-export const mapRegionToDB = (region: Region) => ({
-  id: region.id,
-  name_ar: region.nameAr,
-  name_en: region.nameEn,
-  country: region.country,
-  lat: region.lat,
-  lng: region.lng,
-  pricing: region.pricing || null,
-  created_at: region.createdAt,
-});
+export const mapRegionToDB = (region: Region) => {
+  const normalized = ensureRegionPricing(region);
+  return {
+    id: normalized.id,
+    name_ar: normalized.nameAr,
+    name_en: normalized.nameEn,
+    country: normalized.country,
+    lat: normalized.lat,
+    lng: normalized.lng,
+    pricing: normalized.pricing || null,
+    created_at: normalized.createdAt,
+  };
+};
 
 // --- TRIP TRANSFORMS ---
 export const mapTripFromDB = (row: any): Trip => ({
@@ -2173,6 +2176,95 @@ export const clearAllDriversInDB = async (): Promise<boolean> => {
 };
 
 // Fetch Stats
+const REGION_PRICING_REQUIRED_FIELDS = [
+  'distanceBuffer',
+  'additionalKm',
+  'carBaseFare',
+  'carMinFare',
+  'carPricePerKm0to20',
+  'carPricePerKm20to50',
+  'carPricePerKm50plus',
+  'motorcycleBaseFare',
+  'motorcycleMinFare',
+  'motorcyclePricePerKm0to20',
+  'motorcyclePricePerKm20to50',
+  'motorcyclePricePerKm50plus',
+  'toktokBaseFare',
+  'toktokMinFare',
+  'toktokPricePerKm0to20',
+  'toktokPricePerKm20to50',
+  'toktokPricePerKm50plus',
+  'tricycleBaseFare',
+  'tricycleMinFare',
+  'tricyclePricePerKm0to20',
+  'tricyclePricePerKm20to50',
+  'tricyclePricePerKm50plus',
+  'commissionMode',
+  'incomingCommission',
+  'outgoingCommission',
+  'incomingCommissionPercent',
+  'outgoingCommissionPercent',
+] as const;
+
+const DEFAULT_REGION_PRICING: RegionPricing = {
+  distanceBuffer: 1.25,
+  additionalKm: 0.0,
+  carBaseFare: 20,
+  carMinFare: 2,
+  carPricePerKm0to20: 8,
+  carPricePerKm20to50: 8,
+  carPricePerKm50plus: 8,
+  motorcycleBaseFare: 12,
+  motorcycleMinFare: 2,
+  motorcyclePricePerKm0to20: 5,
+  motorcyclePricePerKm20to50: 5,
+  motorcyclePricePerKm50plus: 5,
+  toktokBaseFare: 10,
+  toktokMinFare: 2,
+  toktokPricePerKm0to20: 4,
+  toktokPricePerKm20to50: 4,
+  toktokPricePerKm50plus: 4,
+  tricycleBaseFare: 10,
+  tricycleMinFare: 2,
+  tricyclePricePerKm0to20: 4,
+  tricyclePricePerKm20to50: 4,
+  tricyclePricePerKm50plus: 4,
+  commissionMode: 'fixed',
+  incomingCommission: 5,
+  outgoingCommission: 5,
+  incomingCommissionPercent: 10,
+  outgoingCommissionPercent: 10,
+};
+
+export const ensureRegionPricing = (region: Region, stats?: SystemStats | null): Region => {
+  const source = stats || (typeof window !== 'undefined' ? (() => {
+    try {
+      const raw = localStorage.getItem('ezz_system_stats');
+      return raw ? JSON.parse(raw) : null;
+    } catch {
+      return null;
+    }
+  })() : null);
+  const base = { ...DEFAULT_REGION_PRICING, ...(source || {}) };
+  const current = (region.pricing || {}) as RegionPricing;
+  const pricing: RegionPricing = { ...base, ...current };
+  return {
+    ...region,
+    pricing,
+  };
+};
+
+export const validateRegionPricing = (pricing: any): boolean => {
+  if (!pricing || typeof pricing !== 'object') return false;
+  for (const field of REGION_PRICING_REQUIRED_FIELDS) {
+    const value = pricing[field];
+    if (value === undefined || value === null || value === '') {
+      return false;
+    }
+  }
+  return true;
+};
+
 export const fetchStats = async (): Promise<SystemStats | null> => {
   // Check local cache first
   let cachedStats: Partial<SystemStats> | null = null;
@@ -2544,6 +2636,10 @@ export const fetchRegions = async (): Promise<Region[] | null> => {
 };
 
 export const saveRegion = async (region: Region): Promise<boolean> => {
+  const missing = !validateRegionPricing(region.pricing);
+  if (missing) {
+    console.warn('[saveRegion] Rejected incomplete region pricing');
+  }
   // 1. Immediately cache in localStorage so user configuration is never lost
   try {
     const raw = localStorage.getItem('ezz_regions_cache');

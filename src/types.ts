@@ -211,7 +211,6 @@ export interface AuditLogEntry {
 }
 
 export interface RegionPricing {
-  customPricingEnabled?: boolean;
   distanceBuffer?: number;
   additionalKm?: number;
   carBaseFare?: number;
