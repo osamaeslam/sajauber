@@ -1,5 +1,5 @@
 import { supabase, isSupabaseConfigured } from './supabaseClient';
-import { Driver, Rider, Location, Trip, SystemStats, Admin, RiderPreferences, AuditLogEntry, PromoCode, Region, RegionPricing, Ad } from './types';
+import { Driver, Rider, Location, Trip, SystemStats, Admin, RiderPreferences, AuditLogEntry, PromoCode, Region, Ad } from './types';
 import { PAGINATION_PAGE_SIZE } from './constants';
 import { verifyPassword, isSecureHash, hashPassword, generateUUID } from './utils/security';
 
@@ -176,8 +176,6 @@ CREATE TABLE IF NOT EXISTS ezz_regions (
   pricing JSONB,
   created_at TEXT DEFAULT NOW()::TEXT
 );
-
-ALTER TABLE IF EXISTS ezz_regions ADD COLUMN IF NOT EXISTS pricing JSONB;
 
 -- ============================================================
 -- 2. جدول الركاب
@@ -571,15 +569,16 @@ CREATE POLICY "admin_write_locations" ON ezz_locations FOR ALL TO anon USING (
   EXISTS (SELECT 1 FROM ezz_sessions WHERE role = 'ADMIN')
 ) WITH CHECK (true);
 
--- Regions: القراءة للجميع، الكتابة للإدمن فقط
+-- Regions: القراءة والكتابة المباشرة للسحابة
 DROP POLICY IF EXISTS "Allow public read regions" ON ezz_regions;
+DROP POLICY IF EXISTS "public_read_regions" ON ezz_regions;
 CREATE POLICY "public_read_regions" ON ezz_regions FOR SELECT USING (true);
 DROP POLICY IF EXISTS "Allow public write regions" ON ezz_regions;
 DROP POLICY IF EXISTS "Allow public update regions" ON ezz_regions;
 DROP POLICY IF EXISTS "Allow public delete regions" ON ezz_regions;
-CREATE POLICY "admin_write_regions" ON ezz_regions FOR ALL TO anon USING (
-  EXISTS (SELECT 1 FROM ezz_sessions WHERE role = 'ADMIN')
-) WITH CHECK (true);
+DROP POLICY IF EXISTS "admin_write_regions" ON ezz_regions;
+DROP POLICY IF EXISTS "public_write_regions" ON ezz_regions;
+CREATE POLICY "public_write_regions" ON ezz_regions FOR ALL TO anon USING (true) WITH CHECK (true);
 
 -- Riders: القراءة للجميع، التعديل لمالك الحساب أو الإدمن
 DROP POLICY IF EXISTS "Allow public read riders" ON ezz_riders;
@@ -1381,19 +1380,16 @@ export const mapRegionFromDB = (row: any): Region => ({
   createdAt: row.created_at || '',
 });
 
-export const mapRegionToDB = (region: Region) => {
-  const normalized = ensureRegionPricing(region);
-  return {
-    id: normalized.id,
-    name_ar: normalized.nameAr,
-    name_en: normalized.nameEn,
-    country: normalized.country,
-    lat: normalized.lat,
-    lng: normalized.lng,
-    pricing: normalized.pricing || null,
-    created_at: normalized.createdAt,
-  };
-};
+export const mapRegionToDB = (region: Region) => ({
+  id: region.id,
+  name_ar: region.nameAr,
+  name_en: region.nameEn,
+  country: region.country,
+  lat: region.lat,
+  lng: region.lng,
+  pricing: region.pricing || null,
+  created_at: region.createdAt,
+});
 
 // --- TRIP TRANSFORMS ---
 export const mapTripFromDB = (row: any): Trip => ({
@@ -2178,95 +2174,6 @@ export const clearAllDriversInDB = async (): Promise<boolean> => {
 };
 
 // Fetch Stats
-const REGION_PRICING_REQUIRED_FIELDS = [
-  'distanceBuffer',
-  'additionalKm',
-  'carBaseFare',
-  'carMinFare',
-  'carPricePerKm0to20',
-  'carPricePerKm20to50',
-  'carPricePerKm50plus',
-  'motorcycleBaseFare',
-  'motorcycleMinFare',
-  'motorcyclePricePerKm0to20',
-  'motorcyclePricePerKm20to50',
-  'motorcyclePricePerKm50plus',
-  'toktokBaseFare',
-  'toktokMinFare',
-  'toktokPricePerKm0to20',
-  'toktokPricePerKm20to50',
-  'toktokPricePerKm50plus',
-  'tricycleBaseFare',
-  'tricycleMinFare',
-  'tricyclePricePerKm0to20',
-  'tricyclePricePerKm20to50',
-  'tricyclePricePerKm50plus',
-  'commissionMode',
-  'incomingCommission',
-  'outgoingCommission',
-  'incomingCommissionPercent',
-  'outgoingCommissionPercent',
-] as const;
-
-const DEFAULT_REGION_PRICING: RegionPricing = {
-  distanceBuffer: 1.25,
-  additionalKm: 0.0,
-  carBaseFare: 20,
-  carMinFare: 2,
-  carPricePerKm0to20: 8,
-  carPricePerKm20to50: 8,
-  carPricePerKm50plus: 8,
-  motorcycleBaseFare: 12,
-  motorcycleMinFare: 2,
-  motorcyclePricePerKm0to20: 5,
-  motorcyclePricePerKm20to50: 5,
-  motorcyclePricePerKm50plus: 5,
-  toktokBaseFare: 10,
-  toktokMinFare: 2,
-  toktokPricePerKm0to20: 4,
-  toktokPricePerKm20to50: 4,
-  toktokPricePerKm50plus: 4,
-  tricycleBaseFare: 10,
-  tricycleMinFare: 2,
-  tricyclePricePerKm0to20: 4,
-  tricyclePricePerKm20to50: 4,
-  tricyclePricePerKm50plus: 4,
-  commissionMode: 'fixed',
-  incomingCommission: 5,
-  outgoingCommission: 5,
-  incomingCommissionPercent: 10,
-  outgoingCommissionPercent: 10,
-};
-
-export const ensureRegionPricing = (region: Region, stats?: SystemStats | null): Region => {
-  const source = stats || (typeof window !== 'undefined' ? (() => {
-    try {
-      const raw = localStorage.getItem('ezz_system_stats');
-      return raw ? JSON.parse(raw) : null;
-    } catch {
-      return null;
-    }
-  })() : null);
-  const base = { ...DEFAULT_REGION_PRICING, ...(source || {}) };
-  const current = (region.pricing || {}) as RegionPricing;
-  const pricing: RegionPricing = { ...base, ...current };
-  return {
-    ...region,
-    pricing,
-  };
-};
-
-export const validateRegionPricing = (pricing: any): boolean => {
-  if (!pricing || typeof pricing !== 'object') return false;
-  for (const field of REGION_PRICING_REQUIRED_FIELDS) {
-    const value = pricing[field];
-    if (value === undefined || value === null || value === '') {
-      return false;
-    }
-  }
-  return true;
-};
-
 export const fetchStats = async (): Promise<SystemStats | null> => {
   // Check local cache first
   let cachedStats: Partial<SystemStats> | null = null;
@@ -2613,7 +2520,62 @@ export const deleteLocationInDB = async (id: string): Promise<boolean> => {
 
 // --- REGIONS CRUD ---
 
+export const validateRegionPricing = (pricing?: any): boolean => {
+  if (!pricing || typeof pricing !== 'object') return false;
+  return (
+    typeof pricing.carPricePerKm0to20 === 'number' &&
+    typeof pricing.carBaseFare === 'number' &&
+    typeof pricing.motorcyclePricePerKm0to20 === 'number'
+  );
+};
+
+export const ensureRegionPricing = (region: Region, statsSource?: any): Region => {
+  const p: any = region.pricing || {};
+  const s: any = statsSource || {};
+  return {
+    ...region,
+    pricing: {
+      distanceBuffer: p.distanceBuffer ?? s.distanceBuffer ?? 1.25,
+      additionalKm: p.additionalKm ?? s.additionalKm ?? 0.0,
+      carBaseFare: p.carBaseFare ?? s.carBaseFare ?? 20,
+      carMinFare: p.carMinFare ?? s.carMinFare ?? 2,
+      carPricePerKm0to20: p.carPricePerKm0to20 ?? p.carPricePerKm ?? s.carPricePerKm ?? 8,
+      carPricePerKm20to50: p.carPricePerKm20to50 ?? s.carPricePerKm20to50 ?? 8,
+      carPricePerKm50plus: p.carPricePerKm50plus ?? s.carPricePerKm50plus ?? 8,
+      motorcycleBaseFare: p.motorcycleBaseFare ?? s.motorcycleBaseFare ?? 12,
+      motorcycleMinFare: p.motorcycleMinFare ?? s.motorcycleMinFare ?? 2,
+      motorcyclePricePerKm0to20: p.motorcyclePricePerKm0to20 ?? p.motorcyclePricePerKm ?? s.motorcyclePricePerKm ?? 5,
+      motorcyclePricePerKm20to50: p.motorcyclePricePerKm20to50 ?? s.motorcyclePricePerKm20to50 ?? 5,
+      motorcyclePricePerKm50plus: p.motorcyclePricePerKm50plus ?? s.motorcyclePricePerKm50plus ?? 5,
+      toktokBaseFare: p.toktokBaseFare ?? s.toktokBaseFare ?? 10,
+      toktokMinFare: p.toktokMinFare ?? s.toktokMinFare ?? 2,
+      toktokPricePerKm0to20: p.toktokPricePerKm0to20 ?? p.toktokPricePerKm ?? s.toktokPricePerKm ?? 4,
+      toktokPricePerKm20to50: p.toktokPricePerKm20to50 ?? s.toktokPricePerKm20to50 ?? 4,
+      toktokPricePerKm50plus: p.toktokPricePerKm50plus ?? s.toktokPricePerKm50plus ?? 4,
+      tricycleBaseFare: p.tricycleBaseFare ?? s.tricycleBaseFare ?? 10,
+      tricycleMinFare: p.tricycleMinFare ?? s.tricycleMinFare ?? 2,
+      tricyclePricePerKm0to20: p.tricyclePricePerKm0to20 ?? p.tricyclePricePerKm ?? s.tricyclePricePerKm ?? 4,
+      tricyclePricePerKm20to50: p.tricyclePricePerKm20to50 ?? s.tricyclePricePerKm20to50 ?? 4,
+      tricyclePricePerKm50plus: p.tricyclePricePerKm50plus ?? s.tricyclePricePerKm50plus ?? 4,
+      commissionMode: p.commissionMode ?? s.commissionMode ?? 'fixed',
+      incomingCommission: p.incomingCommission ?? s.incomingCommission ?? 5,
+      outgoingCommission: p.outgoingCommission ?? s.outgoingCommission ?? 5,
+      incomingCommissionPercent: p.incomingCommissionPercent ?? s.incomingCommissionPercent ?? 10,
+      outgoingCommissionPercent: p.outgoingCommissionPercent ?? s.outgoingCommissionPercent ?? 10,
+    },
+  };
+};
+
 export const fetchRegions = async (): Promise<Region[] | null> => {
+  let cachedRegions: Region[] | null = null;
+  try {
+    const raw = localStorage.getItem('ezz_regions_cache');
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed)) cachedRegions = parsed;
+    }
+  } catch {}
+
   try {
     const { data, error } = await supabase.from('ezz_regions').select('*').order('created_at', { ascending: true });
     if (error) throw error;
@@ -2624,40 +2586,37 @@ export const fetchRegions = async (): Promise<Region[] | null> => {
     return remote;
   } catch (err: any) {
     console.warn('Could not fetch regions from Supabase:', err.message);
-    const raw = localStorage.getItem('ezz_regions_cache');
-    if (raw) {
-      try {
-        const parsed = JSON.parse(raw);
-        if (Array.isArray(parsed)) return parsed;
-      } catch {}
-    }
-    return null;
+    return cachedRegions;
   }
 };
 
 export const saveRegion = async (region: Region): Promise<boolean> => {
-  const normalized = ensureRegionPricing(region);
-  const payload = mapRegionToDB(normalized);
+  // 1. Immediately cache in localStorage so user configuration is never lost
   try {
     const raw = localStorage.getItem('ezz_regions_cache');
     let list: Region[] = raw ? JSON.parse(raw) : [];
     if (!Array.isArray(list)) list = [];
-    const index = list.findIndex(r => r.id === normalized.id);
+    const index = list.findIndex(r => r.id === region.id);
     if (index >= 0) {
-      list[index] = normalized;
+      list[index] = region;
     } else {
-      list.push(normalized);
+      list.push(region);
     }
     localStorage.setItem('ezz_regions_cache', JSON.stringify(list));
   } catch {}
 
   try {
+    const payload = mapRegionToDB(region);
+    console.log('[saveRegion] Upserting region to Supabase:', region.id, payload);
     const { error } = await supabase.from('ezz_regions').upsert(payload);
-    if (error) throw error;
+    if (error) {
+      console.warn('[saveRegion] Supabase returned error:', error);
+      throw error;
+    }
+    console.log('[saveRegion] Region successfully saved to Supabase:', region.nameAr);
     return true;
   } catch (err: any) {
-    const msg = err?.message || String(err);
-    console.warn('[saveRegion] Could not save region to Supabase:', msg);
+    console.warn('Could not save region to Supabase:', err.message || err);
     return false;
   }
 };

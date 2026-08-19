@@ -116,16 +116,46 @@ export function calculateVehicleFare(distance: number, pricing: VehiclePricing):
 }
 
 export function getEffectiveStats(stats: any, regionPricing?: any): any {
-  if (!regionPricing) {
-    return stats || {};
-  }
-  const merged = { ...stats };
-  for (const key of Object.keys(regionPricing)) {
-    if (regionPricing[key] !== undefined && regionPricing[key] !== null) {
-      merged[key] = regionPricing[key];
-    }
-  }
-  return merged;
+  const p = regionPricing || {};
+  return {
+    ...stats,
+    distanceBuffer: p.distanceBuffer ?? stats?.distanceBuffer ?? 1.25,
+    additionalKm: p.additionalKm ?? stats?.additionalKm ?? 0.0,
+    
+    carBaseFare: p.carBaseFare ?? stats?.carBaseFare ?? 20,
+    carMinFare: p.carMinFare ?? stats?.carMinFare ?? 2,
+    carPricePerKm: p.carPricePerKm0to20 ?? p.carPricePerKm ?? stats?.carPricePerKm ?? 8,
+    carPricePerKm0to20: p.carPricePerKm0to20 ?? stats?.carPricePerKm0to20 ?? 8,
+    carPricePerKm20to50: p.carPricePerKm20to50 ?? stats?.carPricePerKm20to50 ?? 8,
+    carPricePerKm50plus: p.carPricePerKm50plus ?? stats?.carPricePerKm50plus ?? 8,
+    
+    motorcycleBaseFare: p.motorcycleBaseFare ?? stats?.motorcycleBaseFare ?? 12,
+    motorcycleMinFare: p.motorcycleMinFare ?? stats?.motorcycleMinFare ?? 2,
+    motorcyclePricePerKm: p.motorcyclePricePerKm0to20 ?? p.motorcyclePricePerKm ?? stats?.motorcyclePricePerKm ?? 5,
+    motorcyclePricePerKm0to20: p.motorcyclePricePerKm0to20 ?? stats?.motorcyclePricePerKm0to20 ?? 5,
+    motorcyclePricePerKm20to50: p.motorcyclePricePerKm20to50 ?? stats?.motorcyclePricePerKm20to50 ?? 5,
+    motorcyclePricePerKm50plus: p.motorcyclePricePerKm50plus ?? stats?.motorcyclePricePerKm50plus ?? 5,
+    
+    toktokBaseFare: p.toktokBaseFare ?? stats?.toktokBaseFare ?? 10,
+    toktokMinFare: p.toktokMinFare ?? stats?.toktokMinFare ?? 2,
+    toktokPricePerKm: p.toktokPricePerKm0to20 ?? p.toktokPricePerKm ?? stats?.toktokPricePerKm ?? 4,
+    toktokPricePerKm0to20: p.toktokPricePerKm0to20 ?? stats?.toktokPricePerKm0to20 ?? 4,
+    toktokPricePerKm20to50: p.toktokPricePerKm20to50 ?? stats?.toktokPricePerKm20to50 ?? 4,
+    toktokPricePerKm50plus: p.toktokPricePerKm50plus ?? stats?.toktokPricePerKm50plus ?? 4,
+    
+    tricycleBaseFare: p.tricycleBaseFare ?? stats?.tricycleBaseFare ?? 10,
+    tricycleMinFare: p.tricycleMinFare ?? stats?.tricycleMinFare ?? 2,
+    tricyclePricePerKm: p.tricyclePricePerKm0to20 ?? p.tricyclePricePerKm ?? stats?.tricyclePricePerKm ?? 4,
+    tricyclePricePerKm0to20: p.tricyclePricePerKm0to20 ?? stats?.tricyclePricePerKm0to20 ?? 4,
+    tricyclePricePerKm20to50: p.tricyclePricePerKm20to50 ?? stats?.tricyclePricePerKm20to50 ?? 4,
+    tricyclePricePerKm50plus: p.tricyclePricePerKm50plus ?? stats?.tricyclePricePerKm50plus ?? 4,
+    
+    commissionMode: p.commissionMode ?? stats?.commissionMode ?? 'fixed',
+    incomingCommission: p.incomingCommission ?? stats?.incomingCommission ?? 5,
+    outgoingCommission: p.outgoingCommission ?? stats?.outgoingCommission ?? 5,
+    incomingCommissionPercent: p.incomingCommissionPercent ?? stats?.incomingCommissionPercent ?? 10,
+    outgoingCommissionPercent: p.outgoingCommissionPercent ?? stats?.outgoingCommissionPercent ?? 10,
+  };
 }
 
 /**
