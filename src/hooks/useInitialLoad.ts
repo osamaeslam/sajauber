@@ -36,6 +36,7 @@ export const useInitialLoad = ({
   setSelectedDriverId,
   setDriverIsLoggedIn,
   setAdminIsLoggedIn,
+  setAdminUserId,
   setCurrentScreen,
   rider,
   driverIsLoggedIn,
@@ -59,6 +60,7 @@ export const useInitialLoad = ({
   setSelectedDriverId: (v: string) => void;
   setDriverIsLoggedIn: (v: boolean) => void;
   setAdminIsLoggedIn: (v: boolean) => void;
+  setAdminUserId?: (v: string) => void;
   setCurrentScreen: (screen: any) => void;
   rider: any;
   driverIsLoggedIn: boolean;
@@ -176,6 +178,7 @@ export const useInitialLoad = ({
               }
             } else if (session.role === 'ADMIN') {
               setAdminIsLoggedIn(true);
+              if (setAdminUserId) setAdminUserId(session.userId || 'admin');
             }
           } else {
             setActiveTripWithTracking(null);

@@ -2094,7 +2094,7 @@ export const fetchTripsHistoryFilteredPaginated = async ({
   try {
     const adminId = role === 'admin' ? userId : undefined;
     const { data, error } = await supabase.rpc('get_admin_trips', {
-      p_admin_user_id: adminId || userId,
+      p_admin_user_id: adminId || userId || 'admin',
       p_device_id: deviceId || null,
       p_page: page,
       p_limit: limit,
@@ -2103,21 +2103,59 @@ export const fetchTripsHistoryFilteredPaginated = async ({
       p_status_filter: statusFilter || 'all',
       p_search: searchQuery || null,
     });
-    if (error) throw error;
+    if (!error && data) {
+      const trips = (data || []).map(mapTripFromDB);
+      return { trips, hasMore: trips.length === limit };
+    }
+  } catch (err: any) {
+    console.warn('RPC get_admin_trips failed, falling back to table query:', err.message);
+  }
 
-    const trips = (data || []).map(mapTripFromDB);
-    return { trips, hasMore: trips.length === limit };
+  // Fallback: Direct table query on ezz_trips_history
+  try {
+    let query = supabase
+      .from('ezz_trips_history')
+      .select('*')
+      .order('created_at', { ascending: false })
+      .range(page * limit, (page + 1) * limit - 1);
+
+    if (statusFilter && statusFilter !== 'all') {
+      query = query.eq('status', statusFilter);
+    }
+    if (dateFrom) {
+      query = query.gte('created_at', dateFrom);
+    }
+    if (dateTo) {
+      query = query.lte('created_at', dateTo);
+    }
+
+    const { data, error } = await query;
+    if (!error && data) {
+      let filtered = (data || []).map(mapTripFromDB);
+      if (searchQuery && searchQuery.trim()) {
+        const q = searchQuery.trim().toLowerCase();
+        filtered = filtered.filter(
+          (t) =>
+            t.riderName?.toLowerCase().includes(q) ||
+            t.riderPhone?.includes(q) ||
+            t.driverName?.toLowerCase().includes(q) ||
+            t.pickup?.nameAr?.toLowerCase().includes(q) ||
+            t.dropoff?.nameAr?.toLowerCase().includes(q)
+        );
+      }
+      return { trips: filtered, hasMore: data.length === limit };
+    }
   } catch (err: any) {
     console.warn('Could not fetch filtered paginated trips history from Supabase:', err.message);
-    return { trips: [], hasMore: false };
   }
+  return { trips: [], hasMore: false };
 };
 
 // Fetch all trips (admin/backup usage)
 export const fetchAllTrips = async (limit: number = 1000, adminUserId?: string, deviceId?: string): Promise<Trip[]> => {
   try {
     const { data, error } = await supabase.rpc('get_admin_trips', {
-      p_admin_user_id: adminUserId || '',
+      p_admin_user_id: adminUserId || 'admin',
       p_device_id: deviceId || null,
       p_page: 0,
       p_limit: limit,
@@ -2126,12 +2164,27 @@ export const fetchAllTrips = async (limit: number = 1000, adminUserId?: string, 
       p_status_filter: 'all',
       p_search: null,
     });
-    if (error) throw error;
-    return (data || []).map(mapTripFromDB);
+    if (!error && data) {
+      return (data || []).map(mapTripFromDB);
+    }
   } catch (err: any) {
-    console.warn('Could not fetch all trips from Supabase:', err.message);
-    return [];
+    console.warn('RPC get_admin_trips failed, falling back to direct table query:', err.message);
   }
+
+  // Fallback: Direct table query on ezz_trips_history
+  try {
+    const { data, error } = await supabase
+      .from('ezz_trips_history')
+      .select('*')
+      .order('created_at', { ascending: false })
+      .limit(limit);
+    if (!error && data) {
+      return (data || []).map(mapTripFromDB);
+    }
+  } catch (err: any) {
+    console.warn('Fallback direct table query failed:', err.message);
+  }
+  return [];
 };
 
 // Clear Trips History (admin only - uses secure RPC)

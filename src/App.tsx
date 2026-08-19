@@ -1183,6 +1183,7 @@
               }
             } else if (session.role === 'ADMIN') {
               setAdminIsLoggedIn(true);
+              setAdminUserId(session.userId || 'admin');
               if (supabaseConnected) setAppRole('ADMIN');
             }
           } else {
@@ -2844,7 +2845,9 @@
       endTripInProgressRef.current = true;
 
       const { driverId, fare, commission } = activeTrip;
-      const netEarnings = fare - commission;
+      const fareNum = Number(fare) || 0;
+      const commNum = Number(commission) || 0;
+      const netEarnings = fareNum - commNum;
 
       try {
         if (driverId) {
@@ -2854,41 +2857,94 @@
               ...d,
               status: 'AVAILABLE' as const,
               isOnline: true,
-              totalTrips: (d.totalTrips || 0) + 1,
-              totalEarnings: d.totalEarnings + netEarnings,
-              totalCommissionPaid: d.totalCommissionPaid + commission,
+              totalTrips: (Number(d.totalTrips) || 0) + 1,
+              totalEarnings: (Number(d.totalEarnings) || 0) + netEarnings,
+              totalCommissionPaid: (Number(d.totalCommissionPaid) || 0) + commNum,
             };
           });
           const updatedDriver = updatedDrivers.find((d) => d.id === driverId);
           setDrivers(updatedDrivers);
 
-          if (updatedDriver && supabaseConnected) {
-            let saved = await saveDriver(updatedDriver);
-            if (!saved) {
-              await new Promise((resolve) => setTimeout(resolve, 1000));
-              saved = await saveDriver(updatedDriver);
+          if (updatedDriver) {
+            lastSyncedDriversRef.current[driverId] = {
+              currentX: updatedDriver.currentX,
+              currentY: updatedDriver.currentY,
+              isOnline: true,
+              status: 'AVAILABLE',
+              totalEarnings: updatedDriver.totalEarnings,
+              totalCommissionPaid: updatedDriver.totalCommissionPaid,
+              totalTrips: updatedDriver.totalTrips,
+              rating: updatedDriver.rating,
+              approvalStatus: updatedDriver.approvalStatus,
+              serviceAreas: updatedDriver.serviceAreas,
+            };
+
+            if (supabaseConnected) {
+              try {
+                await supabase.from('ezz_drivers').update({
+                  status: 'AVAILABLE',
+                  is_online: true,
+                  total_trips: updatedDriver.totalTrips,
+                  total_earnings: updatedDriver.totalEarnings,
+                  total_commission_paid: updatedDriver.totalCommissionPaid,
+                  last_seen: new Date().toISOString(),
+                }).eq('id', driverId);
+              } catch (dbErr) {
+                console.warn('[handleEndTrip] Direct driver DB update warning:', dbErr);
+              }
+              let saved = await saveDriver(updatedDriver);
+              if (!saved) {
+                await new Promise((resolve) => setTimeout(resolve, 1000));
+                saved = await saveDriver(updatedDriver);
+              }
             }
           }
         }
 
         if (activeTrip.riderId) {
           const currentRiderId = activeTrip.riderId;
+          const riderObj = registeredRiders.find((r) => r.id === currentRiderId) || (rider.id === currentRiderId ? rider : null);
+          const newTotalTrips = ((riderObj ? Number(riderObj.totalTrips) : Number(rider.totalTrips)) || 0) + 1;
+
           setRegisteredRiders((prev) =>
-            prev.map((r) => (r.id === currentRiderId ? { ...r, totalTrips: (r.totalTrips || 0) + 1 } : r))
+            prev.map((r) => (r.id === currentRiderId ? { ...r, totalTrips: newTotalTrips } : r))
           );
-          setRider((prev) => (prev && prev.id === currentRiderId ? { ...prev, totalTrips: (prev.totalTrips || 0) + 1 } : prev));
-          const rObj = registeredRiders.find((r) => r.id === currentRiderId);
-          if (rObj && supabaseConnected) {
-            saveRider({ ...rObj, totalTrips: (rObj.totalTrips || 0) + 1 }).catch(() => {});
+          setRider((prev) => {
+            if (!prev) return prev;
+            const updatedR = { ...prev, totalTrips: newTotalTrips };
+            try {
+              localStorage.setItem('ezz_rider_session', JSON.stringify(updatedR));
+            } catch {}
+            return updatedR;
+          });
+
+          if (supabaseConnected) {
+            try {
+              await supabase.from('ezz_riders').update({
+                total_trips: newTotalTrips,
+              }).eq('id', currentRiderId);
+            } catch (dbErr) {
+              console.warn('[handleEndTrip] Direct rider DB update warning:', dbErr);
+            }
+            if (riderObj) {
+              saveRider({ ...riderObj, totalTrips: newTotalTrips }).catch(() => {});
+            }
           }
         }
 
-        setStats((s) => ({
-          ...s,
-          totalRevenue: s.totalRevenue + fare,
-          totalCommission: s.totalCommission + commission,
-          totalCompletedTrips: s.totalCompletedTrips + 1,
-        }));
+        const nextStats: SystemStats = {
+          ...stats,
+          totalRevenue: (stats.totalRevenue || 0) + fareNum,
+          totalCommission: (stats.totalCommission || 0) + commNum,
+          totalCompletedTrips: (stats.totalCompletedTrips || 0) + 1,
+        };
+        setStats(nextStats);
+        try {
+          localStorage.setItem('ezz_system_stats', JSON.stringify(nextStats));
+        } catch {}
+        if (supabaseConnected) {
+          saveStats(nextStats).catch((e) => console.warn('[handleEndTrip] saveStats error:', e));
+        }
 
         const completed: Trip = {
           ...activeTrip,
@@ -3020,11 +3076,17 @@
       console.log('[handleSettleDriverCommissions] driverId:', driverId, 'found:', !!driver, 'supabaseConnected:', supabaseConnected, 'currentCommission:', driver?.totalCommissionPaid);
       if (!driver) return;
       const cleared = { ...driver, totalCommissionPaid: 0 };
+      setDrivers((prev) => prev.map((d) => (d.id === driverId ? cleared : d)));
+
       if (supabaseConnected) {
+        try {
+          await supabase.from('ezz_drivers').update({ total_commission_paid: 0 }).eq('id', driverId);
+        } catch (dbErr) {
+          console.warn('[handleSettleDriverCommissions] Direct DB update error:', dbErr);
+        }
         const saved = await saveDriver(cleared);
         console.log('[handleSettleDriverCommissions] saveDriver result:', saved);
         if (saved) {
-          setDrivers((prev) => prev.map((d) => (d.id === driverId ? cleared : d)));
           lastSyncedDriversRef.current[driverId] = {
             currentX: cleared.currentX,
             currentY: cleared.currentY,
@@ -3038,8 +3100,17 @@
             serviceAreas: cleared.serviceAreas,
           };
         }
+        triggerToast(
+          lang === 'ar' ? 'تمت التصفية بنجاح' : 'Settlement Complete',
+          lang === 'ar' ? `تم تصفية عمولة الكابتن (${driver.name}) وتحديث المستحقات إلى 0 ج.م` : `Commission settled for Captain ${driver.name}`,
+          'success'
+        );
       } else {
-        setDrivers((prev) => prev.map((d) => (d.id === driverId ? cleared : d)));
+        triggerToast(
+          lang === 'ar' ? 'تمت التصفية محلياً' : 'Settled Locally',
+          lang === 'ar' ? `تم تصفية عمولة الكابتن (${driver.name}) على هذا الجهاز` : `Commission settled locally for ${driver.name}`,
+          'info'
+        );
       }
     };
 
@@ -3368,33 +3439,99 @@
       }
 
       const { driverId, fare, commission } = trip;
-      const netEarnings = fare - commission;
+      const fareNum = Number(fare) || 0;
+      const commNum = Number(commission) || 0;
+      const netEarnings = fareNum - commNum;
 
       if (driverId) {
         const updatedDrivers = drivers.map((d) => {
           if (d.id !== driverId) return d;
           return {
             ...d,
-            status: 'OFFLINE' as const,
-            isOnline: false,
-            totalTrips: d.totalTrips + 1,
-            totalEarnings: d.totalEarnings + netEarnings,
-            totalCommissionPaid: d.totalCommissionPaid + commission,
+            status: 'AVAILABLE' as const,
+            isOnline: true,
+            totalTrips: (Number(d.totalTrips) || 0) + 1,
+            totalEarnings: (Number(d.totalEarnings) || 0) + netEarnings,
+            totalCommissionPaid: (Number(d.totalCommissionPaid) || 0) + commNum,
           };
         });
         const updatedDriver = updatedDrivers.find((d) => d.id === driverId);
         setDrivers(updatedDrivers);
         if (updatedDriver) {
-          await saveDriver(updatedDriver).catch(() => {});
+          lastSyncedDriversRef.current[driverId] = {
+            currentX: updatedDriver.currentX,
+            currentY: updatedDriver.currentY,
+            isOnline: true,
+            status: 'AVAILABLE',
+            totalEarnings: updatedDriver.totalEarnings,
+            totalCommissionPaid: updatedDriver.totalCommissionPaid,
+            totalTrips: updatedDriver.totalTrips,
+            rating: updatedDriver.rating,
+            approvalStatus: updatedDriver.approvalStatus,
+            serviceAreas: updatedDriver.serviceAreas,
+          };
+          if (supabaseConnected) {
+            try {
+              await supabase.from('ezz_drivers').update({
+                status: 'AVAILABLE',
+                is_online: true,
+                total_trips: updatedDriver.totalTrips,
+                total_earnings: updatedDriver.totalEarnings,
+                total_commission_paid: updatedDriver.totalCommissionPaid,
+                last_seen: new Date().toISOString(),
+              }).eq('id', driverId);
+            } catch (dbErr) {
+              console.warn('[adminForceEnd] Driver DB update warning:', dbErr);
+            }
+            await saveDriver(updatedDriver).catch(() => {});
+          }
         }
       }
 
-      setStats((s) => ({
-        ...s,
-        totalRevenue: s.totalRevenue + fare,
-        totalCommission: s.totalCommission + commission,
-        totalCompletedTrips: s.totalCompletedTrips + 1,
-      }));
+      if (trip.riderId) {
+        const currentRiderId = trip.riderId;
+        const riderObj = registeredRiders.find((r) => r.id === currentRiderId) || (rider.id === currentRiderId ? rider : null);
+        const newTotalTrips = ((riderObj ? Number(riderObj.totalTrips) : Number(rider.totalTrips)) || 0) + 1;
+
+        setRegisteredRiders((prev) =>
+          prev.map((r) => (r.id === currentRiderId ? { ...r, totalTrips: newTotalTrips } : r))
+        );
+        setRider((prev) => {
+          if (!prev) return prev;
+          const updatedR = { ...prev, totalTrips: newTotalTrips };
+          try {
+            localStorage.setItem('ezz_rider_session', JSON.stringify(updatedR));
+          } catch {}
+          return updatedR;
+        });
+
+        if (supabaseConnected) {
+          try {
+            await supabase.from('ezz_riders').update({
+              total_trips: newTotalTrips,
+            }).eq('id', currentRiderId);
+          } catch (dbErr) {
+            console.warn('[adminForceEnd] Rider DB update warning:', dbErr);
+          }
+          if (riderObj) {
+            saveRider({ ...riderObj, totalTrips: newTotalTrips }).catch(() => {});
+          }
+        }
+      }
+
+      const nextStats: SystemStats = {
+        ...stats,
+        totalRevenue: (stats.totalRevenue || 0) + fareNum,
+        totalCommission: (stats.totalCommission || 0) + commNum,
+        totalCompletedTrips: (stats.totalCompletedTrips || 0) + 1,
+      };
+      setStats(nextStats);
+      try {
+        localStorage.setItem('ezz_system_stats', JSON.stringify(nextStats));
+      } catch {}
+      if (supabaseConnected) {
+        saveStats(nextStats).catch((e) => console.warn('[adminForceEnd] saveStats error:', e));
+      }
 
       const completed: Trip = {
         ...trip,
