@@ -220,28 +220,19 @@ export const useNotifications = (
     const tripKey = `alarm_${activeTrip.id}`;
     if (!notifiedEventsRef.current.has(tripKey)) {
       notifiedEventsRef.current.add(tripKey);
-      const MAX_ALARM_RETRIES = 4;
-      let alarmRetryCount = 0;
-      const playLoop = () => {
-        if (!activeTrip) return;
-        if (alarmRetryCount >= MAX_ALARM_RETRIES) {
-          stopAlarm();
-          return;
-        }
-        alarmRetryCount++;
-        notifyRideRequest(
-          lang === 'ar' ? '🚖 طلب مشوار جديد!' : '🚖 New Ride Request!',
-          lang === 'ar'
-            ? `من ${activeTrip.pickup.nameAr} إلى ${activeTrip.dropoff.nameAr} | ${activeTrip.fare} ج.م`
-            : `${activeTrip.pickup.nameEn} → ${activeTrip.dropoff.nameEn} | ${activeTrip.fare} EGP`,
-          lang === 'ar' ? 'ar-EG' : 'en-US'
-        );
-        alarmTimerRef.current = setTimeout(playLoop, 4000);
-      };
-      playLoop();
+      const pickupName = activeTrip.pickup?.nameAr || activeTrip.pickup?.nameEn || (typeof activeTrip.pickup === 'string' ? activeTrip.pickup : (lang === 'ar' ? 'الموقع الحالي' : 'Current Location'));
+      const dropoffName = activeTrip.dropoff?.nameAr || activeTrip.dropoff?.nameEn || (typeof activeTrip.dropoff === 'string' ? activeTrip.dropoff : (lang === 'ar' ? 'الوجهة' : 'Destination'));
+
+      notifyRideRequest(
+        lang === 'ar' ? '🚖 طلب مشوار جديد!' : '🚖 New Ride Request!',
+        lang === 'ar'
+          ? `من ${pickupName} إلى ${dropoffName} | ${activeTrip.fare} ج.م`
+          : `${pickupName} → ${dropoffName} | ${activeTrip.fare} EGP`,
+        lang === 'ar' ? 'ar-EG' : 'en-US'
+      );
     }
     return stopAlarm;
-  }, [driverIsLoggedIn, activeTrip]);
+  }, [driverIsLoggedIn, activeTrip, lang]);
 
   // Background notification poller (visibility-aware)
   useEffect(() => {
