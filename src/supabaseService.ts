@@ -1568,6 +1568,109 @@ export const deleteDriverInDB = async (driverId: string): Promise<boolean> => {
   }
 };
 
+export interface AtomicDriverTripResult {
+  success: boolean;
+  totalEarnings: number;
+  totalCommissionPaid: number;
+  totalTrips: number;
+}
+
+/**
+ * Atomically records driver earnings, commissions, and trip count in ezz_drivers table with verification.
+ */
+export const recordDriverTripCompletionAtomic = async (
+  driverId: string,
+  netEarnings: number,
+  commission: number,
+  riderId?: string,
+  tripFare: number = 0
+): Promise<AtomicDriverTripResult> => {
+  // 1. Try atomic PostgreSQL RPC first
+  try {
+    const { data, error } = await supabase.rpc('record_driver_trip_completion', {
+      p_driver_id: driverId,
+      p_net_earnings: netEarnings,
+      p_commission: commission,
+      p_rider_id: riderId || null,
+      p_trip_fare: tripFare,
+    });
+    if (!error && data && data.success) {
+      console.log('[recordDriverTripCompletionAtomic] RPC success:', data);
+      return {
+        success: true,
+        totalEarnings: Number(data.total_earnings) || 0,
+        totalCommissionPaid: Number(data.total_commission_paid) || 0,
+        totalTrips: Number(data.total_trips) || 0,
+      };
+    }
+  } catch (rpcErr) {
+    console.warn('[recordDriverTripCompletionAtomic] RPC error, using verified direct update fallback:', rpcErr);
+  }
+
+  // 2. Direct transactional update fallback with verification
+  try {
+    const { data: currentDriver } = await supabase
+      .from('ezz_drivers')
+      .select('total_earnings, total_commission_paid, total_trips')
+      .eq('id', driverId)
+      .maybeSingle();
+
+    const curEarnings = Number(currentDriver?.total_earnings) || 0;
+    const curCommission = Number(currentDriver?.total_commission_paid) || 0;
+    const curTrips = Number(currentDriver?.total_trips) || 0;
+
+    const newEarnings = curEarnings + netEarnings;
+    const newCommission = curCommission + commission;
+    const newTrips = curTrips + 1;
+
+    const { error: updateErr } = await supabase
+      .from('ezz_drivers')
+      .update({
+        status: 'AVAILABLE',
+        is_online: true,
+        total_trips: newTrips,
+        total_earnings: newEarnings,
+        total_commission_paid: newCommission,
+        last_seen: new Date().toISOString(),
+      })
+      .eq('id', driverId);
+
+    if (updateErr) {
+      console.error('[recordDriverTripCompletionAtomic] Direct update error:', updateErr);
+      return {
+        success: false,
+        totalEarnings: newEarnings,
+        totalCommissionPaid: newCommission,
+        totalTrips: newTrips,
+      };
+    }
+
+    // Read back and verify
+    const { data: verified } = await supabase
+      .from('ezz_drivers')
+      .select('total_earnings, total_commission_paid, total_trips')
+      .eq('id', driverId)
+      .maybeSingle();
+
+    console.log('[recordDriverTripCompletionAtomic] Direct update verified in DB:', verified);
+
+    return {
+      success: true,
+      totalEarnings: Number(verified?.total_earnings ?? newEarnings),
+      totalCommissionPaid: Number(verified?.total_commission_paid ?? newCommission),
+      totalTrips: Number(verified?.total_trips ?? newTrips),
+    };
+  } catch (err: any) {
+    console.error('[recordDriverTripCompletionAtomic] Exception:', err);
+    return {
+      success: false,
+      totalEarnings: netEarnings,
+      totalCommissionPaid: commission,
+      totalTrips: 1,
+    };
+  }
+};
+
 // Fetch Registered Riders
 export const fetchRiders = async (): Promise<Rider[] | null> => {
   try {

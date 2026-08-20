@@ -174,9 +174,12 @@ export function calculateFullTripFare(
   const effectiveStats = getEffectiveStats(stats, regionPricing);
   const pricing = getVehiclePricing(effectiveStats, vehicleType);
   
-  // If round trip: travel distance is 2x one-way distance
+  // One-way distance fare
+  const oneWayBaseFare = calculateVehicleFare(distance, pricing);
+  
+  // If round trip: exactly (2 × one-way fare), preventing excessive tier jumps on longer combined distances
   const effectiveDistance = isRoundTrip ? parseFloat((distance * 2).toFixed(2)) : distance;
-  let computedBase = calculateVehicleFare(effectiveDistance, pricing);
+  let computedBase = isRoundTrip ? (oneWayBaseFare * 2) : oneWayBaseFare;
 
   // Waiting fee: e.g. 0.75 EGP / min for waiting
   const waitingRatePerMinute = effectiveStats?.waitingRatePerMinute ?? 0.75;

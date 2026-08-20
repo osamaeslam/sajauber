@@ -49,7 +49,8 @@
     uploadDriverImageFromBase64,
     mapDriverFromDB,
     mapTripFromDB,
-    atomicAcceptTrip
+    atomicAcceptTrip,
+    recordDriverTripCompletionAtomic
   } from './supabaseService';
   import {
     requestNotificationPermission,
@@ -2880,18 +2881,24 @@
             };
 
             if (supabaseConnected) {
-              try {
-                await supabase.from('ezz_drivers').update({
-                  status: 'AVAILABLE',
-                  is_online: true,
-                  total_trips: updatedDriver.totalTrips,
-                  total_earnings: updatedDriver.totalEarnings,
-                  total_commission_paid: updatedDriver.totalCommissionPaid,
-                  last_seen: new Date().toISOString(),
-                }).eq('id', driverId);
-              } catch (dbErr) {
-                console.warn('[handleEndTrip] Direct driver DB update warning:', dbErr);
+              const atomicRes = await recordDriverTripCompletionAtomic(
+                driverId,
+                netEarnings,
+                commNum,
+                activeTrip.riderId,
+                fareNum
+              );
+              console.log('[handleEndTrip] recordDriverTripCompletionAtomic result:', atomicRes);
+
+              if (atomicRes.success) {
+                updatedDriver.totalEarnings = atomicRes.totalEarnings;
+                updatedDriver.totalCommissionPaid = atomicRes.totalCommissionPaid;
+                updatedDriver.totalTrips = atomicRes.totalTrips;
+                lastSyncedDriversRef.current[driverId].totalEarnings = atomicRes.totalEarnings;
+                lastSyncedDriversRef.current[driverId].totalCommissionPaid = atomicRes.totalCommissionPaid;
+                lastSyncedDriversRef.current[driverId].totalTrips = atomicRes.totalTrips;
               }
+
               let saved = await saveDriver(updatedDriver);
               if (!saved) {
                 await new Promise((resolve) => setTimeout(resolve, 1000));
@@ -3471,17 +3478,21 @@
             serviceAreas: updatedDriver.serviceAreas,
           };
           if (supabaseConnected) {
-            try {
-              await supabase.from('ezz_drivers').update({
-                status: 'AVAILABLE',
-                is_online: true,
-                total_trips: updatedDriver.totalTrips,
-                total_earnings: updatedDriver.totalEarnings,
-                total_commission_paid: updatedDriver.totalCommissionPaid,
-                last_seen: new Date().toISOString(),
-              }).eq('id', driverId);
-            } catch (dbErr) {
-              console.warn('[adminForceEnd] Driver DB update warning:', dbErr);
+            const atomicRes = await recordDriverTripCompletionAtomic(
+              driverId,
+              netEarnings,
+              commNum,
+              trip.riderId,
+              fareNum
+            );
+            console.log('[adminForceEnd] recordDriverTripCompletionAtomic result:', atomicRes);
+            if (atomicRes.success) {
+              updatedDriver.totalEarnings = atomicRes.totalEarnings;
+              updatedDriver.totalCommissionPaid = atomicRes.totalCommissionPaid;
+              updatedDriver.totalTrips = atomicRes.totalTrips;
+              lastSyncedDriversRef.current[driverId].totalEarnings = atomicRes.totalEarnings;
+              lastSyncedDriversRef.current[driverId].totalCommissionPaid = atomicRes.totalCommissionPaid;
+              lastSyncedDriversRef.current[driverId].totalTrips = atomicRes.totalTrips;
             }
             await saveDriver(updatedDriver).catch(() => {});
           }
